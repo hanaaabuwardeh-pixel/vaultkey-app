@@ -82,7 +82,12 @@ alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 
 create policy "public can discover qualified published listings" on public.listings for select using (
-  status = 'published' and exists (select 1 from public.valuations v where v.listing_id = id and v.qualification_status = 'qualified')
+  status = 'published' and exists (
+    select 1
+    from public.valuations v
+    where v.listing_id = public.listings.id
+      and v.qualification_status = 'qualified'
+  )
 );
 create policy "owners manage listing drafts" on public.listings for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
 create policy "users read own profile" on public.profiles for select using (auth.uid() = id);
