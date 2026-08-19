@@ -1,16 +1,24 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { OpportunityCard } from '@/components/OpportunityCard';
+import { useAuth } from '@/lib/auth';
 import { colors, radius } from '@/lib/theme';
 
 const propertyImage = require('../assets/west-plano.jpg');
 const categories = ['All', 'Residential', 'Multifamily', 'Commercial', 'Land', 'Business'];
 
 export default function DiscoverScreen() {
+  const { session, loading, signOut } = useAuth();
+  useEffect(() => { if (!loading && !session) router.replace('/welcome'); }, [loading, session]);
+  if (!session) return <SafeAreaView style={styles.safe} />;
+  const firstName = session.user.user_metadata.full_name?.split(' ')[0] ?? 'Member';
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.greeting}>Good evening, Hanaa</Text>
+        <View style={styles.topline}><Text style={styles.greeting}>Good evening, {firstName}</Text><Pressable onPress={async () => { await signOut(); router.replace('/welcome'); }}><Text style={styles.signOut}>Sign out</Text></Pressable></View>
         <Text style={styles.heading}>Deals worth opening.</Text>
         <TextInput style={styles.search} placeholder="City, ZIP, address, asset, or keyword" placeholderTextColor={colors.muted} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
@@ -39,6 +47,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.ivory },
   content: { padding: 22, paddingBottom: 100 },
   greeting: { color: colors.ink, fontSize: 12, marginTop: 6 },
+  topline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  signOut: { color: colors.emerald, fontSize: 11, fontWeight: '700' },
   heading: { color: colors.ink, fontFamily: 'serif', fontSize: 27, marginTop: 6, marginBottom: 10 },
   search: { height: 46, backgroundColor: colors.white, borderRadius: radius.sm, paddingHorizontal: 12, fontSize: 12 },
   categories: { gap: 7, paddingVertical: 13 },
