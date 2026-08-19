@@ -1,0 +1,14 @@
+name: Build VaultKey Android Preview
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_android_preview:
+    name: Build Android Preview APK
+    type: build
+    params:
+      platform: android
+      profile: preview
