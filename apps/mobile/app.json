@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "VaultKey",
+    "slug": "vaultkey-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "vaultkey",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vaultkey.app"
+    },
+    "android": {
+      "package": "com.vaultkey.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "caadc3fa-ba1c-467b-9a8a-5048389e9eaa"
+      }
+    },
+    "experiments": { "typedRoutes": true }
+  }
+}
