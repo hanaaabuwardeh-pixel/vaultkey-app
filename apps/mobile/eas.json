@@ -4,7 +4,8 @@
     "development": { "developmentClient": true, "distribution": "internal" },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": { "EAS_NO_FROZEN_LOCKFILE": "1" }
     },
     "production": { "autoIncrement": true }
   },
