@@ -3,6 +3,7 @@
   "build": {
     "development": { "developmentClient": true, "distribution": "internal" },
     "preview": {
+      "node": "22.0.0",
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": { "EAS_NO_FROZEN_LOCKFILE": "1" }
