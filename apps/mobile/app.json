@@ -6,7 +6,15 @@
     "orientation": "portrait",
     "scheme": "vaultkey",
     "userInterfaceStyle": "light",
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Vault Key to use Face ID for secure sign in."
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.vaultkey.app"

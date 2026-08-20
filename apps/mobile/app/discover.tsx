@@ -1,44 +1,49 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { OpportunityCard } from '@/components/OpportunityCard';
+import { DiscoverNav } from '@/components/DiscoverNav';
 import { useAuth } from '@/lib/auth';
 import { colors, radius } from '@/lib/theme';
+import { AssetClass, money, opportunities } from '@/lib/opportunities';
 
 const propertyImage = require('../assets/west-plano.jpg');
-const categories = ['All', 'Residential', 'Multifamily', 'Commercial', 'Land', 'Business'];
+const categories = ['All', 'Residential', 'Multifamily', 'Commercial', 'Land', 'Business'] as const;
 
 export default function DiscoverScreen() {
   const { session, loading, signOut } = useAuth();
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<(typeof categories)[number]>('All');
   useEffect(() => { if (!loading && !session) router.replace('/welcome'); }, [loading, session]);
+  const visible = useMemo(() => opportunities.filter((item) => (category === 'All' || item.assetClass === category) && (!query.trim() || `${item.title} ${item.location} ${item.assetClass} ${item.subtype} ${item.summary}`.toLowerCase().includes(query.trim().toLowerCase()))), [category, query]);
   if (!session) return <SafeAreaView style={styles.safe} />;
   const firstName = session.user.user_metadata.full_name?.split(' ')[0] ?? 'Member';
+  const open = (id: string) => router.push({ pathname: '/opportunity', params: { id } });
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.topline}><Text style={styles.greeting}>Good evening, {firstName}</Text><Pressable onPress={async () => { await signOut(); router.replace('/welcome'); }}><Text style={styles.signOut}>Sign out</Text></Pressable></View>
         <Text style={styles.heading}>Deals worth opening.</Text>
-        <TextInput style={styles.search} placeholder="City, ZIP, address, asset, or keyword" placeholderTextColor={colors.muted} />
+        <Pressable style={styles.searchRow} onPress={() => router.push('/search')}>
+          <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/results', params: { q: query, category } })} style={styles.search} placeholder="City, ZIP, address, asset, or keyword" placeholderTextColor={colors.muted} returnKeyType="search" />
+          <Pressable onPress={() => router.push('/filters')} style={styles.filterButton}><Text style={styles.filterText}>Filters</Text></Pressable>
+        </Pressable>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
-          {categories.map((category, index) => (
-            <Pressable key={category} style={[styles.category, index === 0 && styles.categoryActive]}>
-              <Text style={[styles.categoryText, index === 0 && styles.categoryTextActive]}>{category}</Text>
+          {categories.map((item) => (
+            <Pressable key={item} onPress={() => setCategory(item)} style={[styles.category, category === item && styles.categoryActive]}>
+              <Text style={[styles.categoryText, category === item && styles.categoryTextActive]}>{item}</Text>
             </Pressable>
           ))}
         </ScrollView>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Featured Opportunity</Text><Text style={styles.viewAll}>View all</Text></View>
-        <OpportunityCard featured title="West Plano, TX" askingPrice="$610,000" discount="20%" upside="$150,000" image={propertyImage} />
+        <OpportunityCard featured title={opportunities[0].location} askingPrice={money(opportunities[0].askingPrice)} discount={`${opportunities[0].discount}%`} upside={money(opportunities[0].upside)} image={propertyImage} onPress={() => open(opportunities[0].id)} />
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Nearby Opportunities</Text><Text style={styles.viewAll}>View all</Text></View>
-        <View style={styles.list}>
-          <OpportunityCard title="Arlington, TX" askingPrice="$485,000" discount="19%" upside="$110,000" image={propertyImage} />
-          <OpportunityCard title="Mesquite, TX" askingPrice="$325,000" discount="22%" upside="$92,000" image={propertyImage} />
-        </View>
+        <View style={styles.list}>{visible.map((item) => <OpportunityCard key={item.id} id={item.id} assetClass={`${item.assetClass} · ${item.subtype}`} title={item.location} askingPrice={money(item.askingPrice)} marketValue={item.marketValue} discount={`${item.discount}%`} upside={money(item.upside)} image={propertyImage} onPress={() => open(item.id)} />)}</View>
+        {!visible.length ? <Text style={styles.empty}>No opportunities match this search yet.</Text> : null}
       </ScrollView>
-      <View style={styles.nav}>
-        {['Discover', 'Saved', 'List a Deal', 'Messages', 'Profile'].map((label) => <Text key={label} style={[styles.navText, label === 'Discover' && styles.navActive]}>{label}</Text>)}
-      </View>
+      <DiscoverNav />
     </SafeAreaView>
   );
 }
@@ -50,7 +55,9 @@ const styles = StyleSheet.create({
   topline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   signOut: { color: colors.emerald, fontSize: 11, fontWeight: '700' },
   heading: { color: colors.ink, fontFamily: 'serif', fontSize: 27, marginTop: 6, marginBottom: 10 },
-  search: { height: 46, backgroundColor: colors.white, borderRadius: radius.sm, paddingHorizontal: 12, fontSize: 12 },
+  searchRow: { height: 46, backgroundColor: colors.white, borderRadius: radius.sm, flexDirection: 'row', alignItems: 'center' },
+  search: { flex: 1, height: 46, paddingHorizontal: 12, fontSize: 12 },
+  filterButton: { height: 34, paddingHorizontal: 11, borderLeftWidth: 1, borderLeftColor: colors.border, justifyContent: 'center' }, filterText: { color: colors.emerald, fontSize: 11, fontWeight: '700' },
   categories: { gap: 7, paddingVertical: 13 },
   category: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 13, height: 34, justifyContent: 'center' },
   categoryActive: { backgroundColor: colors.emerald, borderColor: colors.emerald },
@@ -60,7 +67,5 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
   viewAll: { color: colors.ink, fontSize: 11 },
   list: { gap: 12 },
-  nav: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 68, backgroundColor: colors.emeraldDark, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 6 },
-  navText: { color: colors.white, fontSize: 9, width: 70, textAlign: 'center' },
-  navActive: { color: colors.gold, fontWeight: '700' },
+  empty: { color: colors.muted, textAlign: 'center', paddingVertical: 28, fontSize: 13 },
 });

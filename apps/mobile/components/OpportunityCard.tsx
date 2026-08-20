@@ -1,5 +1,6 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radius } from '@/lib/theme';
+import { money } from '@/lib/opportunities';
 
 type OpportunityCardProps = {
   title: string;
@@ -7,18 +8,23 @@ type OpportunityCardProps = {
   discount: string;
   upside: string;
   image: number;
+  id?: string;
+  assetClass?: string;
+  marketValue?: number;
+  onPress?: () => void;
   featured?: boolean;
 };
 
-export function OpportunityCard({ title, askingPrice, discount, upside, image, featured }: OpportunityCardProps) {
+export function OpportunityCard({ title, askingPrice, discount, upside, image, featured, assetClass, marketValue, onPress }: OpportunityCardProps) {
   if (!featured) {
     return (
-      <Pressable style={styles.rowCard} accessibilityRole="button" accessibilityLabel={`View ${title} opportunity`}>
+      <Pressable onPress={onPress} style={styles.rowCard} accessibilityRole="button" accessibilityLabel={`View ${title} opportunity`}>
         <Image source={image} style={styles.thumbnail} />
         <View style={styles.rowCopy}>
           <Text style={styles.rowTitle}>{title}</Text>
+          {assetClass ? <Text style={styles.asset}>{assetClass}</Text> : null}
           <Text style={styles.rowPrice}>{askingPrice}</Text>
-          <Text style={styles.discount}>{discount} below market</Text>
+          <Text style={styles.discount}>{discount} below market{marketValue ? ` · ${money(marketValue)} value` : ''}</Text>
         </View>
       </Pressable>
     );
@@ -33,7 +39,7 @@ export function OpportunityCard({ title, askingPrice, discount, upside, image, f
         <Text style={styles.heroTitle}>{title}</Text>
         <Text style={styles.heroMeta}>{askingPrice}   •   {discount} below market   •   {upside} upside</Text>
       </View>
-      <Pressable style={styles.cta} accessibilityRole="button">
+      <Pressable onPress={onPress} style={styles.cta} accessibilityRole="button">
         <Text style={styles.ctaText}>View Opportunity</Text>
       </Pressable>
     </View>
@@ -54,6 +60,7 @@ const styles = StyleSheet.create({
   thumbnail: { width: 105, minHeight: 105 },
   rowCopy: { flex: 1, padding: 12 },
   rowTitle: { color: colors.ink, fontWeight: '700', fontSize: 14 },
+  asset: { color: colors.muted, fontSize: 10, marginTop: 3 },
   rowPrice: { color: colors.ink, fontWeight: '700', fontSize: 17, marginTop: 7 },
   discount: { color: colors.emerald, fontSize: 11, marginTop: 7 },
 });

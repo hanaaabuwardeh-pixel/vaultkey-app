@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { AuthShell, Field, InlineMessage, PrimaryButton } from '@/components/AuthUI';
+import { AuthShell, Field, InlineMessage, PasswordField, PrimaryButton } from '@/components/AuthUI';
 import { supabase } from '@/lib/supabase';
 
 const allowedRoles = ['buyer', 'seller', 'agent'] as const;
@@ -38,8 +38,8 @@ export default function CreateAccountScreen() {
     <Field label="Full name" value={fullName} onChangeText={setFullName} autoComplete="name" />
     <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
     <Field label="Mobile number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" />
-    <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" />
-    <Field label="Confirm password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry autoComplete="new-password" />
+    <PasswordField label="Password" value={password} onChangeText={setPassword} autoComplete="new-password" />
+    <PasswordField label="Confirm password" value={confirmPassword} onChangeText={setConfirmPassword} autoComplete="new-password" />
     {error ? <InlineMessage text={error} error /> : <InlineMessage text="8+ characters · 1 uppercase letter · 1 number" />}
     <PrimaryButton label={busy ? 'Creating Account…' : 'Create Account'} onPress={createAccount} disabled={busy} />
   </AuthShell>;

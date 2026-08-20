@@ -1,4 +1,5 @@
 import type { Session, User } from '@supabase/supabase-js';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 
@@ -7,6 +8,8 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   configured: boolean;
+  unlocked: boolean;
+  unlockWithBiometrics: () => Promise<{ success: boolean; message?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -15,6 +18,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unlocked, setUnlocked] = useState(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -40,10 +44,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
     user: session?.user ?? null,
     loading,
     configured: Boolean(supabase),
+    unlocked,
+    unlockWithBiometrics: async () => {
+      if (!session) return { success: false, message: 'Sign in with your password once before using biometrics.' };
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!compatible || !enrolled) return { success: false, message: 'Set up Face ID, face unlock, or fingerprint in your phone settings first.' };
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Unlock Vault Key',
+        cancelLabel: 'Use password',
+        disableDeviceFallback: false,
+      });
+      if (!result.success) return { success: false, message: 'Biometric sign-in was canceled or unsuccessful.' };
+      setUnlocked(true);
+      return { success: true };
+    },
     signOut: async () => {
       if (supabase) await supabase.auth.signOut();
+      setUnlocked(false);
     },
-  }), [loading, session]);
+  }), [loading, session, unlocked]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

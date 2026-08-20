@@ -1,11 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
-import { AuthShell, Field, InlineMessage, PrimaryButton, SecondaryButton } from '@/components/AuthUI';
+import { AuthShell, Field, InlineMessage, PasswordField, PrimaryButton, SecondaryButton } from '@/components/AuthUI';
+import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/lib/theme';
 
 export default function SignInScreen() {
+  const { session, unlockWithBiometrics } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,12 +24,20 @@ export default function SignInScreen() {
     router.replace('/discover');
   };
 
+  const biometricSignIn = async () => {
+    setError('');
+    const result = await unlockWithBiometrics();
+    if (!result.success) return setError(result.message ?? 'Unable to use biometric sign-in.');
+    router.replace('/discover');
+  };
+
   return <AuthShell title="Welcome back" subtitle="Sign in to continue finding better opportunities.">
     <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
-    <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" />
+    <PasswordField label="Password" value={password} onChangeText={setPassword} autoComplete="current-password" />
     <Pressable onPress={() => router.push('/forgot-password')}><Text style={styles.forgot}>Forgot password?</Text></Pressable>
     {error ? <InlineMessage text={error} error /> : null}
     <PrimaryButton label={busy ? 'Signing In…' : 'Sign In'} onPress={signIn} disabled={busy} />
+    {session ? <SecondaryButton label="Use Face ID / Fingerprint" onPress={biometricSignIn} /> : null}
     <SecondaryButton label="Create an Account" onPress={() => router.push('/choose-role')} />
   </AuthShell>;
 }
