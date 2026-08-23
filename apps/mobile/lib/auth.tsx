@@ -1,5 +1,4 @@
 import type { Session, User } from '@supabase/supabase-js';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 
@@ -47,17 +46,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
     unlocked,
     unlockWithBiometrics: async () => {
       if (!session) return { success: false, message: 'Sign in with your password once before using biometrics.' };
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!compatible || !enrolled) return { success: false, message: 'Set up Face ID, face unlock, or fingerprint in your phone settings first.' };
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock Vault Key',
-        cancelLabel: 'Use password',
-        disableDeviceFallback: false,
-      });
-      if (!result.success) return { success: false, message: 'Biometric sign-in was canceled or unsuccessful.' };
-      setUnlocked(true);
-      return { success: true };
+      try {
+        // Load the native module only when requested. A missing or unsupported
+        // biometric implementation must never prevent Vault Key from opening.
+        const LocalAuthentication = await import('expo-local-authentication');
+        const compatible = await LocalAuthentication.hasHardwareAsync();
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!compatible || !enrolled) return { success: false, message: 'Set up Face ID, face unlock, or fingerprint in your phone settings first.' };
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Unlock Vault Key',
+          cancelLabel: 'Use password',
+          disableDeviceFallback: false,
+        });
+        if (!result.success) return { success: false, message: 'Biometric sign-in was canceled or unsuccessful.' };
+        setUnlocked(true);
+        return { success: true };
+      } catch {
+        return { success: false, message: 'Biometric sign-in is not available on this device yet.' };
+      }
     },
     signOut: async () => {
       if (supabase) await supabase.auth.signOut();
