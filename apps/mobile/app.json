@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "scheme": "vaultkey",
     "userInterfaceStyle": "light",
+    "newArchEnabled": false,
     "plugins": [
       "expo-router",
       [
