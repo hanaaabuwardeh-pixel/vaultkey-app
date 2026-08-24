@@ -1,0 +1,128 @@
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { colors, radius } from '@/lib/theme';
+
+type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
+type Draft = Record<string, string | boolean>;
+const assets: { name: Asset; note: string }[] = [
+  { name: 'Residential', note: 'Homes, condos, townhomes' },
+  { name: 'Multifamily', note: '5+ units' },
+  { name: 'Commercial', note: 'Office, retail, industrial, hospitality' },
+  { name: 'Land', note: 'Raw land and developed sites' },
+  { name: 'Business', note: 'Business-only opportunities' },
+];
+const types: Record<Asset, string[]> = {
+  Residential: ['Single-Family', 'Condo / Townhome', '2–4 Unit', 'Vacation / Short-Term'],
+  Multifamily: ['5–20 Units', '21–50 Units', '51–100 Units', '100+ Units'],
+  Commercial: ['Office', 'Retail', 'Industrial / Warehouse', 'Hospitality', 'Medical', 'Special Use'],
+  Land: ['Residential Lot', 'Commercial Lot', 'Industrial', 'Agricultural / Ranch', 'Development Land'],
+  Business: ['Restaurant', 'Retail', 'Automotive', 'Service', 'Healthcare', 'Other'],
+};
+const fields: Record<Asset, { key: string; label: string; placeholder: string }[]> = {
+  Residential: [
+    { key: 'beds', label: 'Bedrooms', placeholder: '4' }, { key: 'baths', label: 'Bathrooms', placeholder: '3' },
+    { key: 'livingArea', label: 'Living area (sq ft)', placeholder: '2,450' }, { key: 'yearBuilt', label: 'Year built', placeholder: '2005' },
+    { key: 'condition', label: 'Condition', placeholder: 'Move-in ready / needs work' },
+  ],
+  Multifamily: [
+    { key: 'units', label: 'Total units', placeholder: '24' }, { key: 'occupancy', label: 'Occupancy', placeholder: '92%' },
+    { key: 'noi', label: 'Annual NOI', placeholder: '$305,000' }, { key: 'capRate', label: 'Cap rate', placeholder: '7.6%' },
+    { key: 'unitMix', label: 'Unit mix', placeholder: '12 × 1BR, 12 × 2BR' },
+  ],
+  Commercial: [
+    { key: 'buildingArea', label: 'Building area (sq ft)', placeholder: '18,500' }, { key: 'noi', label: 'Annual NOI', placeholder: '$520,000' },
+    { key: 'capRate', label: 'Cap rate', placeholder: '8.9%' }, { key: 'leaseStatus', label: 'Lease status', placeholder: '100% leased' },
+    { key: 'tenancy', label: 'Tenancy', placeholder: 'Single or multi-tenant' },
+  ],
+  Land: [
+    { key: 'acres', label: 'Size (acres)', placeholder: '15.2' }, { key: 'zoning', label: 'Zoning / entitlements', placeholder: 'PD – approved' },
+    { key: 'utilities', label: 'Utilities / road access', placeholder: 'All utilities · paved' }, { key: 'developmentStatus', label: 'Development status', placeholder: 'Shovel ready' },
+  ],
+  Business: [
+    { key: 'revenue', label: 'Annual revenue', placeholder: '$1,250,000' }, { key: 'cashFlow', label: 'Cash flow', placeholder: '$225,000' },
+    { key: 'sde', label: 'Seller discretionary earnings', placeholder: '$310,000' }, { key: 'yearsOperating', label: 'Years operating', placeholder: '11' },
+    { key: 'included', label: 'Included in sale', placeholder: 'Inventory, equipment, real estate' },
+  ],
+};
+
+export default function ListOpportunityScreen() {
+  const [step, setStep] = useState(1);
+  const [asset, setAsset] = useState<Asset>('Residential');
+  const [draft, setDraft] = useState<Draft>({ type: 'Single-Family', hideAddress: true, occupancy: 'Vacant', contact: 'Vault Key messages' });
+  const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
+  const adaptiveFields = useMemo(() => fields[asset], [asset]);
+  const next = () => step < 8 ? setStep(step + 1) : setStep(9);
+  const back = () => step === 1 ? router.back() : setStep(step - 1);
+  const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
+
+  if (step === 9) return (
+    <SafeAreaView style={styles.safe}><View style={styles.success}>
+      <View style={styles.check}><Text style={styles.checkText}>✓</Text></View>
+      <Text style={styles.hero}>Listing submitted</Text>
+      <Text style={styles.sub}>We’re reviewing your listing for completeness and independent valuation.</Text>
+      <View style={styles.timeline}><Text style={styles.good}>● Submitted</Text><Text style={styles.timelineText}>Review · usually within 1 business day</Text><Text style={styles.timelineText}>Live · we’ll notify you when approved</Text></View>
+      <Pressable style={styles.primary} onPress={() => router.replace('/discover')}><Text style={styles.primaryText}>Return to Discover</Text></Pressable>
+      <Pressable style={styles.secondary} onPress={() => { setStep(1); setDraft({ type: 'Single-Family', hideAddress: true }); }}><Text style={styles.secondaryText}>Add Another Opportunity</Text></Pressable>
+    </View></SafeAreaView>
+  );
+
+  return <SafeAreaView style={styles.safe}>
+    <View style={styles.header}><Pressable onPress={back}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.progress}>{step} of 8</Text><Text style={styles.saved}>Draft saved</Text></View>
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={styles.hero}>{title}</Text>
+      <Text style={styles.sub}>{step === 1 ? 'Questions adapt to the opportunity you select.' : step === 4 ? 'Seller-provided figures are reviewed independently.' : 'Complete the information buyers need to evaluate this opportunity.'}</Text>
+
+      {step === 1 && <View style={styles.stack}>{assets.map((a) => <Choice key={a.name} label={a.name} note={a.note} selected={asset === a.name} onPress={() => { setAsset(a.name); set('type', types[a.name][0]); }} />)}</View>}
+      {step === 2 && <View style={styles.grid}>{types[asset].map((t) => <Pressable key={t} onPress={() => set('type', t)} style={[styles.tile, draft.type === t && styles.selected]}><Text style={styles.tileText}>{t}</Text></Pressable>)}</View>}
+      {step === 3 && <View style={styles.stack}>
+        <Field label="Street address" value={draft.address} placeholder="123 Main St" onChange={(v) => set('address', v)} />
+        <View style={styles.row}><Field half label="City" value={draft.city} placeholder="West Plano" onChange={(v) => set('city', v)} /><Field half label="State" value={draft.state} placeholder="TX" onChange={(v) => set('state', v)} /></View>
+        <Field label="ZIP code" value={draft.zip} placeholder="75093" onChange={(v) => set('zip', v)} />
+        <View style={styles.switchRow}><View style={{flex:1}}><Text style={styles.label}>Hide exact address until I approve access</Text><Text style={styles.hint}>Discover shows the city only.</Text></View><Switch value={!!draft.hideAddress} onValueChange={(v) => set('hideAddress', v)} trackColor={{true: colors.emerald}} /></View>
+        <View style={styles.map}><Text style={styles.mapPin}>●</Text><Text style={styles.mapText}>{String(draft.city || 'Property location')}</Text></View>
+      </View>}
+      {step === 4 && <View style={styles.stack}>
+        <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
+        <Field label="Estimated market value" value={draft.marketValue} placeholder="$750,000" onChange={(v) => set('marketValue', v)} />
+        <Field label="Value source" value={draft.valueSource} placeholder="Independent appraisal / third-party data" onChange={(v) => set('valueSource', v)} />
+        <View style={styles.valuation}><Text style={styles.valueBig}>Independent valuation</Text><Text style={styles.hint}>Vault Key verifies market value and calculates discount. Sellers cannot edit verified results.</Text></View>
+      </View>}
+      {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
+      {step === 6 && <View style={styles.stack}>
+        <View style={styles.upload}><Text style={styles.uploadTitle}>＋ Add photos or video</Text><Text style={styles.hint}>Add at least 5 clear photos. First photo becomes the cover.</Text></View>
+        {['Seller disclosure', 'Survey / site plan', asset === 'Business' ? 'Profit & loss statement' : 'Inspection report', 'Operating statement', 'Offering memorandum'].map((d) => <View key={d} style={styles.document}><Text style={styles.label}>{d}</Text><Text style={styles.private}>Private until approved</Text></View>)}
+      </View>}
+      {step === 7 && <View style={styles.stack}>
+        <Field multiline label="Deal description" value={draft.description} placeholder="Describe the opportunity, condition, strengths, risks, and value-add potential." onChange={(v) => set('description', v)} />
+        <Text style={styles.section}>Who can access private details?</Text>
+        {['Verified account', 'Identity verified', 'Proof of funds', 'Signed confidentiality agreement', 'Seller approval required'].map((x) => <Pressable key={x} onPress={() => set(x, !draft[x])} style={styles.checkRow}><Text style={styles.checkbox}>{draft[x] ? '✓' : '□'}</Text><Text style={styles.label}>{x}</Text></Pressable>)}
+        <Text style={styles.section}>Preferred contact</Text><View style={styles.grid}>{['Vault Key messages', 'Phone after approval', 'Email after approval'].map((x) => <Pressable key={x} onPress={() => set('contact', x)} style={[styles.tile, draft.contact === x && styles.selected]}><Text style={styles.tileText}>{x}</Text></Pressable>)}</View>
+      </View>}
+      {step === 8 && <View style={styles.stack}>
+        <View style={styles.preview}><View style={styles.previewImage}><Text style={styles.previewImageText}>PHOTO</Text></View><Text style={styles.assetTitle}>{draft.city || 'Location'}, {draft.state || 'State'}</Text><Text style={styles.price}>{draft.askingPrice || 'Asking price'}</Text><Text style={styles.good}>{asset} · {String(draft.type)}</Text></View>
+        {[['Property', asset + ' · ' + draft.type], ['Location', draft.hideAddress ? 'City visible · address private' : draft.address], ['Financials', draft.askingPrice || 'Required'], ['Asset details', adaptiveFields.map(f => draft[f.key]).filter(Boolean).join(' · ') || 'Required'], ['Media', 'Photos and documents'], ['Access', 'Controlled approval']].map(([a,b]) => <View key={String(a)} style={styles.reviewRow}><Text style={styles.label}>{a}</Text><Text numberOfLines={2} style={styles.reviewValue}>{String(b)}</Text></View>)}
+        <Text style={styles.notice}>What you enter becomes what qualified buyers see in Discover. Independent value is published only after review.</Text>
+      </View>}
+    </ScrollView>
+    <View style={styles.footer}><Pressable style={styles.primary} onPress={next}><Text style={styles.primaryText}>{step === 7 ? 'Review Listing' : step === 8 ? 'Submit for Review' : 'Continue'}</Text></Pressable>{step === 8 && <Pressable style={styles.secondary}><Text style={styles.secondaryText}>Save Draft</Text></Pressable>}</View>
+  </SafeAreaView>;
+}
+
+function Choice({label,note,selected,onPress}:{label:string;note:string;selected:boolean;onPress:()=>void}) { return <Pressable onPress={onPress} style={[styles.choice, selected && styles.selected]}><View><Text style={styles.choiceTitle}>{label}</Text><Text style={styles.hint}>{note}</Text></View><Text style={styles.radio}>{selected ? '●' : '○'}</Text></Pressable>; }
+function Field({label,value,placeholder,onChange,half,multiline}:{label:string;value:unknown;placeholder:string;onChange:(v:string)=>void;half?:boolean;multiline?:boolean}) { return <View style={half ? styles.half : undefined}><Text style={styles.label}>{label}</Text><TextInput style={[styles.input,multiline && styles.multiline]} value={typeof value === 'string' ? value : ''} placeholder={placeholder} placeholderTextColor={colors.muted} onChangeText={onChange} multiline={multiline} /></View>; }
+
+const styles = StyleSheet.create({
+  safe:{flex:1,backgroundColor:colors.ivory}, header:{height:52,paddingHorizontal:20,flexDirection:'row',alignItems:'center'},back:{fontSize:34,color:colors.ink},progress:{marginLeft:14,color:colors.emerald,fontWeight:'800'},saved:{marginLeft:'auto',color:colors.emerald,fontSize:11,fontWeight:'700'},
+  content:{padding:22,paddingBottom:150},hero:{fontFamily:'serif',fontSize:29,color:colors.ink,marginBottom:5},sub:{fontSize:13,lineHeight:19,color:colors.muted,marginBottom:22},stack:{gap:13},grid:{flexDirection:'row',flexWrap:'wrap',gap:10},
+  choice:{minHeight:76,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:16,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},selected:{borderColor:colors.emerald,backgroundColor:'#EAF4F0'},choiceTitle:{fontSize:16,fontWeight:'800',color:colors.ink},radio:{fontSize:22,color:colors.emerald},
+  tile:{width:'48%',minHeight:70,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:12,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},tileText:{color:colors.ink,fontSize:12,fontWeight:'700',textAlign:'center'},
+  label:{fontSize:12,fontWeight:'700',color:colors.ink,marginBottom:6},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
+  switchRow:{flexDirection:'row',alignItems:'center',backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14},map:{height:170,borderRadius:radius.md,backgroundColor:'#DDE9DF',alignItems:'center',justifyContent:'center'},mapPin:{fontSize:30,color:colors.emerald},mapText:{fontWeight:'800',color:colors.ink},
+  valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
+  document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
+  preview:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white},previewImage:{height:130,borderRadius:radius.sm,backgroundColor:colors.emeraldDark,alignItems:'center',justifyContent:'center',marginBottom:12},previewImageText:{color:colors.gold,fontWeight:'800'},price:{fontSize:22,fontWeight:'900',color:colors.ink,marginVertical:4},good:{color:colors.emerald,fontWeight:'800'},reviewRow:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',justifyContent:'space-between',gap:15},reviewValue:{flex:1,textAlign:'right',fontSize:11,color:colors.muted},notice:{fontSize:11,lineHeight:16,color:colors.muted,padding:12,backgroundColor:'#EAF4F0',borderRadius:radius.sm},
+  footer:{position:'absolute',left:0,right:0,bottom:0,paddingHorizontal:22,paddingTop:10,paddingBottom:18,backgroundColor:colors.ivory,borderTopWidth:1,borderTopColor:colors.border},primary:{minHeight:52,borderRadius:radius.sm,backgroundColor:colors.emerald,alignItems:'center',justifyContent:'center'},primaryText:{color:colors.white,fontWeight:'800'},secondary:{minHeight:46,borderRadius:radius.sm,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center',marginTop:8},secondaryText:{color:colors.emerald,fontWeight:'800'},
+  success:{flex:1,padding:28,justifyContent:'center'},check:{width:82,height:82,borderRadius:41,backgroundColor:colors.emerald,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:24},checkText:{fontSize:42,color:colors.white,fontWeight:'800'},timeline:{gap:18,padding:18,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white,marginVertical:26},timelineText:{color:colors.muted,fontSize:13}
+});
