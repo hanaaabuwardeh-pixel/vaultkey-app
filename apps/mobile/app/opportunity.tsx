@@ -20,6 +20,11 @@ export default function OpportunityScreen() {
         <View style={styles.body}><Text style={styles.location}>{item.location}</Text><Text style={styles.title}>{item.title}</Text><Text style={styles.subtype}>{item.subtype} · {item.strategy} · {item.condition}</Text>
           <View style={styles.numbers}><Number label="Asking Price" value={money(item.askingPrice)} /><Number label="Independent Value" value={money(item.marketValue)} /><Number label="Below Market" value={`${item.discount}%`} /><Number label="Potential Difference" value={money(item.upside)} /></View>
           <Text style={styles.valuationNote}>Independent valuation pending final document verification. Seller cannot edit this value.</Text>
+          <View style={styles.quickActions}>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/gallery')}><Text style={styles.quickIcon}>▦</Text><Text style={styles.quickText}>Gallery</Text></Pressable>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/seller-profile')}><Text style={styles.quickIcon}>♙</Text><Text style={styles.quickText}>Seller</Text></Pressable>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/deal-assistant')}><Text style={styles.quickIcon}>✦</Text><Text style={styles.quickText}>Deal Assistant</Text></Pressable>
+          </View>
           <Text style={styles.section}>Opportunity summary</Text><Text style={styles.summary}>{item.summary}</Text>
           <Text style={styles.section}>{item.assetClass} details</Text><View style={styles.metrics}>{item.metrics.map((metric) => <View key={metric.label} style={styles.metric}><Text style={styles.metricLabel}>{metric.label}</Text><Text style={styles.metricValue}>{metric.value}</Text></View>)}</View>
           <Text style={styles.section}>Private access</Text><View style={styles.locked}><Text style={styles.lockedTitle}>🔒 Exact address, documents, and seller contact are private.</Text><Text style={styles.lockedCopy}>Access requires a verified profile, proof of funds when required, and seller approval.</Text><View style={styles.checks}><Text style={styles.check}>✓ Verified opportunity</Text><Text style={styles.check}>✓ Independent valuation</Text><Text style={styles.check}>✓ Controlled seller access</Text></View></View>
@@ -53,6 +58,10 @@ const styles = StyleSheet.create({
   numberValue: { color: colors.ink, fontWeight: '700', fontSize: 17 },
   numberLabel: { color: colors.muted, fontSize: 9, marginTop: 4 },
   valuationNote: { color: colors.muted, fontSize: 9, lineHeight: 14, marginTop: 8 },
+  quickActions: { flexDirection: 'row', gap: 8, marginTop: 18 },
+  quickAction: { flex: 1, height: 62, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  quickIcon: { color: colors.emerald, fontSize: 17, fontWeight: '700' },
+  quickText: { color: colors.ink, fontSize: 9, fontWeight: '700' },
   section: { color: colors.ink, fontFamily: 'serif', fontSize: 19, marginTop: 24, marginBottom: 9 },
   summary: { color: colors.muted, fontSize: 12, lineHeight: 19 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
