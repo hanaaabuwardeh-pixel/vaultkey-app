@@ -30,7 +30,7 @@ export default function OpportunityScreen() {
           <Text style={styles.section}>Private access</Text><View style={styles.locked}><Text style={styles.lockedTitle}>🔒 Exact address, documents, and seller contact are private.</Text><Text style={styles.lockedCopy}>Access requires a verified profile, proof of funds when required, and seller approval.</Text><View style={styles.checks}><Text style={styles.check}>✓ Verified opportunity</Text><Text style={styles.check}>✓ Independent valuation</Text><Text style={styles.check}>✓ Controlled seller access</Text></View></View>
         </View>
       </ScrollView>
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 18) }]}><Pressable onPress={() => setSaved(!saved)} style={styles.save}><Text style={styles.saveText}>{saved ? 'Saved' : 'Save'}</Text></Pressable><Pressable disabled={requested} onPress={() => setRequested(true)} style={[styles.request, requested && styles.requested]}><Text style={styles.requestText}>{requested ? 'Access Requested' : 'Request Opportunity Access'}</Text></Pressable></View>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 18) }]}><Pressable onPress={() => setSaved(!saved)} style={styles.save}><Text style={styles.saveText}>{saved ? 'Saved' : 'Save'}</Text></Pressable><Pressable disabled={requested} onPress={() => { setRequested(true); router.push('/messages?view=request'); }} style={[styles.request, requested && styles.requested]}><Text style={styles.requestText}>{requested ? 'Access Requested' : 'Request Opportunity Access'}</Text></Pressable></View>
     </SafeAreaView>
   );
 }
