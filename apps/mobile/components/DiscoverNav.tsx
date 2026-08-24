@@ -11,7 +11,7 @@ export function DiscoverNav() {
       <Pressable style={styles.tab} onPress={() => router.replace('/discover')}><Text style={[styles.item, styles.active]}>Discover</Text></Pressable>
       <Pressable style={styles.tab}><Text style={styles.item}>Saved</Text></Pressable>
       <Pressable style={[styles.tab, styles.primaryTab]} onPress={() => router.push('/list-opportunity')} accessibilityRole="button" accessibilityLabel="List an Opportunity"><Text style={styles.plus}>＋</Text><Text style={[styles.item, styles.primaryText]}>List</Text></Pressable>
-      <Pressable style={styles.tab}><Text style={styles.item}>Messages</Text></Pressable>
+      <Pressable style={styles.tab} onPress={() => router.push('/messages')} accessibilityRole="button" accessibilityLabel="Messages"><Text style={styles.item}>Messages</Text></Pressable>
       <Pressable style={styles.tab}><Text style={styles.item}>Profile</Text></Pressable>
     </View>
   );
