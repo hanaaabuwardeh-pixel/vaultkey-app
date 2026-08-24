@@ -3,7 +3,14 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius } from '@/lib/theme';
 
-const photos = [require('../assets/west-plano.jpg'), require('../assets/interior.jpg'), require('../assets/west-plano.jpg'), require('../assets/interior.jpg'), require('../assets/west-plano.jpg'), require('../assets/interior.jpg')];
+const photos = [
+  require('../assets/west-plano.jpg'),
+  require('../assets/west-plano.jpg'),
+  require('../assets/west-plano.jpg'),
+  require('../assets/west-plano.jpg'),
+  require('../assets/west-plano.jpg'),
+  require('../assets/west-plano.jpg'),
+];
 
 export default function GalleryScreen() {
   return <SafeAreaView style={styles.safe}>
