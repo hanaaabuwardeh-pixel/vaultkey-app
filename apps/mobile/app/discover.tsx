@@ -50,7 +50,7 @@ export default function DiscoverScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.ivory },
-  content: { padding: 22, paddingBottom: 100 },
+  content: { padding: 22, paddingBottom: 150 },
   greeting: { color: colors.ink, fontSize: 12, marginTop: 6 },
   topline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   signOut: { color: colors.emerald, fontSize: 11, fontWeight: '700' },
