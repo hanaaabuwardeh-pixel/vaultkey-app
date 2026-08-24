@@ -20,12 +20,12 @@ export function OpportunityCard({ title, askingPrice, discount, upside, image, f
     return (
       <Pressable onPress={onPress} style={styles.rowCard} accessibilityRole="button" accessibilityLabel={`View ${title} opportunity`}>
         <Image source={image} style={styles.thumbnail} />
-        <View style={styles.rowCopy}>
-          <Text style={styles.rowTitle}>{title}</Text>
-          {assetClass ? <Text style={styles.asset}>{assetClass}</Text> : null}
-          <Text style={styles.rowPrice}>{askingPrice}</Text>
-          <Text style={styles.discount}>{discount} below market{marketValue ? ` · ${money(marketValue)} value` : ''}</Text>
-        </View>
+      <View style={styles.rowCopy}>
+        <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
+        {assetClass ? <Text style={styles.asset} numberOfLines={1}>{assetClass}</Text> : null}
+        <Text style={styles.rowPrice}>{askingPrice}</Text>
+        <Text style={styles.discount} numberOfLines={1}>{discount} below market{marketValue ? ` · ${money(marketValue)} value` : ''}</Text>
+      </View>
       </Pressable>
     );
   }
@@ -56,11 +56,11 @@ const styles = StyleSheet.create({
   heroMeta: { color: colors.white, fontSize: 11, marginTop: 4 },
   cta: { height: 42, margin: 10, backgroundColor: colors.emerald, borderRadius: radius.sm, justifyContent: 'center', alignItems: 'center' },
   ctaText: { color: colors.white, fontWeight: '700', fontSize: 13 },
-  rowCard: { minHeight: 105, flexDirection: 'row', backgroundColor: colors.white, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, overflow: 'hidden' },
-  thumbnail: { width: 105, minHeight: 105 },
-  rowCopy: { flex: 1, padding: 12 },
+  rowCard: { width: '100%', height: 104, maxHeight: 104, flexDirection: 'row', alignSelf: 'stretch', backgroundColor: colors.white, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, overflow: 'hidden' },
+  thumbnail: { width: 104, height: 104, resizeMode: 'cover' },
+  rowCopy: { flex: 1, height: 104, paddingHorizontal: 12, paddingVertical: 8, justifyContent: 'center' },
   rowTitle: { color: colors.ink, fontWeight: '700', fontSize: 14 },
   asset: { color: colors.muted, fontSize: 10, marginTop: 3 },
-  rowPrice: { color: colors.ink, fontWeight: '700', fontSize: 17, marginTop: 7 },
-  discount: { color: colors.emerald, fontSize: 11, marginTop: 7 },
+  rowPrice: { color: colors.ink, fontWeight: '700', fontSize: 17, marginTop: 5 },
+  discount: { color: colors.emerald, fontSize: 11, marginTop: 5 },
 });
