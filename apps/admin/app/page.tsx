@@ -1,6 +1,7 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
@@ -31,7 +32,8 @@ export default function AdminHome() {
   const [password, setPassword] = useState('');
 
   const loadQueue = useCallback(async (nextSession: Session | null) => {
-    if (!supabase || !nextSession) {
+    const client = supabase;
+    if (!client || !nextSession) {
       setListings([]);
       setRole('');
       setLoading(false);
@@ -39,7 +41,7 @@ export default function AdminHome() {
     }
 
     setLoading(true);
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await client
       .from('profiles')
       .select('role')
       .eq('id', nextSession.user.id)
@@ -53,7 +55,7 @@ export default function AdminHome() {
     }
 
     setRole(profile.role);
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('listings')
       .select('id,asset_class,subtype,title,city,state,asking_price_cents,status,created_at')
       .in('status', ['submitted', 'under_review', 'changes_required', 'approved', 'rejected'])
@@ -65,18 +67,19 @@ export default function AdminHome() {
   }, []);
 
   useEffect(() => {
-    if (!supabase) {
+    const client = supabase;
+    if (!client) {
       setMessage('Supabase environment variables are missing.');
       setLoading(false);
       return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
+    client.auth.getSession().then(({ data }) => {
       setSession(data.session);
       loadQueue(data.session);
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = client.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       loadQueue(nextSession);
     });
@@ -84,7 +87,7 @@ export default function AdminHome() {
     return () => data.subscription.unsubscribe();
   }, [loadQueue]);
 
-  const stats = useMemo(() => [
+  const stats = useMemo<Array<[string, number]>>(() => [
     ['Submitted', listings.filter((item) => item.status === 'submitted').length],
     ['Under review', listings.filter((item) => item.status === 'under_review').length],
     ['Changes required', listings.filter((item) => item.status === 'changes_required').length],
@@ -93,10 +96,11 @@ export default function AdminHome() {
 
   const signIn = async (event: FormEvent) => {
     event.preventDefault();
-    if (!supabase) return;
+    const client = supabase;
+    if (!client) return;
     setMessage('');
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
     if (error) {
       setMessage(error.message);
       setLoading(false);
@@ -104,10 +108,11 @@ export default function AdminHome() {
   };
 
   const updateStatus = async (id: string, status: string) => {
-    if (!supabase) return;
+    const client = supabase;
+    if (!client) return;
     setBusyId(id);
     setMessage('');
-    const { error } = await supabase.from('listings').update({
+    const { error } = await client.from('listings').update({
       status,
       updated_at: new Date().toISOString(),
     }).eq('id', id);
