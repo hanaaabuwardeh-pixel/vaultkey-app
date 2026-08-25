@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DiscoverNav } from '@/components/DiscoverNav';
 import { colors, radius } from '@/lib/theme';
 import { money, opportunities, type Opportunity } from '@/lib/opportunities';
+import { getMyListings } from '@/lib/listings';
 
 const propertyImage = require('../assets/west-plano.jpg');
 const tabs = ['Saved', 'Requested', 'Unlocked', 'My Listings'] as const;
@@ -21,7 +22,44 @@ export default function MyVaultScreen() {
   const [tab, setTab] = useState<VaultTab>('Saved');
   const [selected, setSelected] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
-  const items = records[tab];
+  const [myListings, setMyListings] = useState<Opportunity[]>([]);
+  const [listingError, setListingError] = useState('');
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    getMyListings()
+      .then((rows) => {
+        if (!active) return;
+        setMyListings(rows.map((row) => {
+          const assetClass = (row.asset_class.charAt(0).toUpperCase() + row.asset_class.slice(1)) as Opportunity['assetClass'];
+          const askingPrice = Math.round(Number(row.asking_price_cents) / 100);
+          return {
+            id: row.id,
+            assetClass,
+            subtype: row.subtype,
+            title: row.title,
+            location: [row.city, row.state].filter(Boolean).join(', '),
+            askingPrice,
+            marketValue: 0,
+            discount: 0,
+            upside: 0,
+            strategy: row.status.replaceAll('_', ' '),
+            condition: String(row.asset_details?.condition ?? 'Pending review'),
+            summary: String(row.asset_details?.description ?? ''),
+            metrics: [],
+            verified: false,
+            accessRequired: true,
+          };
+        }));
+        setListingError('');
+      })
+      .catch(() => {
+        if (active) setListingError('Your listings could not be loaded.');
+      });
+    return () => { active = false; };
+  }, []));
+
+  const items = tab === 'My Listings' ? myListings : records[tab];
 
   const compared = useMemo(
     () => opportunities.filter((item) => selected.includes(item.id)),
@@ -68,6 +106,8 @@ export default function MyVaultScreen() {
           <Text style={styles.count}>{items.length} {items.length === 1 ? 'opportunity' : 'opportunities'}</Text>
           {tab === 'Saved' ? <Text style={styles.hint}>Select up to 3 to compare</Text> : null}
         </View>
+
+        {tab === 'My Listings' && listingError ? <Text style={styles.error}>{listingError}</Text> : null}
 
         {tab === 'Saved' && selected.length > 0 ? (
           <View style={styles.compareBar}>
@@ -192,5 +232,6 @@ const styles = StyleSheet.create({
   meta:{fontSize:12,color:colors.muted,marginTop:2},
   price:{fontSize:20,fontWeight:'900',color:colors.ink,marginTop:7},
   discount:{fontSize:12,fontWeight:'800',color:colors.success,marginTop:3},
-  empty:{backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:24,alignItems:'center',gap:6}
+  empty:{backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:24,alignItems:'center',gap:6},
+  error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,backgroundColor:'#FEE4E2',borderRadius:radius.sm}
 });
