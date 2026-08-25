@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { colors, radius } from '@/lib/theme';
+import { getPropertyData, searchAddresses, type AddressSuggestion } from '@/lib/propertyData';
 
 type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
 type Draft = Record<string, string | boolean>;
@@ -47,24 +48,41 @@ const fields: Record<Asset, { key: string; label: string; placeholder: string }[
   ],
 };
 
-const addressOptions = [
-  { address: '123 Main St', city: 'West Plano', state: 'TX', zip: '75093' },
-  { address: '7101 Teal Crest Dr', city: 'Plano', state: 'TX', zip: '75024' },
-  { address: '9850 Merritt Rd', city: 'Rowlett', state: 'TX', zip: '75089' },
-];
-
 export default function ListOpportunityScreen() {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [asset, setAsset] = useState<Asset>('Residential');
   const [draft, setDraft] = useState<Draft>({ type: 'Single-Family', hideAddress: true, occupancy: 'Vacant', contact: 'Vault Key messages' });
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [addressError, setAddressError] = useState('');
+  const [selectedPlaceId, setSelectedPlaceId] = useState('');
   const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
   const adaptiveFields = useMemo(() => fields[asset], [asset]);
-  const suggestions = useMemo(() => {
-    const query = String(draft.address || '').trim().toLowerCase();
-    return query.length < 2 ? [] : addressOptions.filter((item) => item.address.toLowerCase().includes(query));
-  }, [draft.address]);
+
+  useEffect(() => {
+    const query = String(draft.address || '').trim();
+    if (selectedPlaceId || query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setAddressLoading(true);
+      setAddressError('');
+      try {
+        setSuggestions(await searchAddresses(query));
+      } catch {
+        setSuggestions([]);
+        setAddressError('Address suggestions are temporarily unavailable.');
+      } finally {
+        setAddressLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [draft.address, selectedPlaceId]);
   const requiredForStep: Record<number, string[]> = {
     2: ['type'],
     3: ['address', 'city', 'state', 'zip'],
@@ -86,8 +104,30 @@ export default function ListOpportunityScreen() {
     if (step === 1) router.back();
     else setStep((current) => Math.max(1, current - 1));
   };
-  const chooseAddress = (item: typeof addressOptions[number]) => {
-    setDraft((current) => ({ ...current, address: item.address, city: item.city, state: item.state, zip: item.zip }));
+  const chooseAddress = async (item: AddressSuggestion) => {
+    setSelectedPlaceId(item.placeId);
+    setSuggestions([]);
+    setAddressLoading(true);
+    setAddressError('');
+    try {
+      const result = await getPropertyData(item.placeId);
+      setDraft((current) => ({
+        ...current,
+        address: result.address.street,
+        city: result.address.city,
+        state: result.address.state,
+        zip: result.address.zip,
+        latitude: String(result.address.latitude ?? ''),
+        longitude: String(result.address.longitude ?? ''),
+        attomMatched: result.attomMatched,
+        attomProperty: result.property ? JSON.stringify(result.property) : '',
+      }));
+    } catch {
+      setSelectedPlaceId('');
+      setAddressError('We could not verify that address. Please try again.');
+    } finally {
+      setAddressLoading(false);
+    }
   };
   const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
 
@@ -112,8 +152,10 @@ export default function ListOpportunityScreen() {
       {step === 1 && <View style={styles.stack}>{assets.map((a) => <Choice key={a.name} label={a.name} note={a.note} selected={asset === a.name} onPress={() => { setAsset(a.name); set('type', types[a.name][0]); }} />)}</View>}
       {step === 2 && <View style={styles.grid}>{types[asset].map((t) => <Pressable key={t} onPress={() => set('type', t)} style={[styles.tile, draft.type === t && styles.selected]}><Text style={styles.tileText}>{t}</Text></Pressable>)}</View>}
       {step === 3 && <View style={styles.stack}>
-        <Field label="Street address *" value={draft.address} placeholder="Start typing an address" onChange={(v) => set('address', v)} />
-        {suggestions.length > 0 && <View style={styles.suggestions}>{suggestions.map((item) => <Pressable key={item.address} style={styles.suggestion} onPress={() => chooseAddress(item)}><Text style={styles.suggestionTitle}>{item.address}</Text><Text style={styles.hint}>{item.city}, {item.state} {item.zip}</Text></Pressable>)}</View>}
+        <Field label="Street address *" value={draft.address} placeholder="Start typing an address" onChange={(v) => { setSelectedPlaceId(''); set('address', v); }} />
+        {addressLoading && <View style={styles.addressStatus}><ActivityIndicator color={colors.emerald} /><Text style={styles.hint}>Searching verified addresses…</Text></View>}
+        {!!addressError && <Text style={styles.addressError}>{addressError}</Text>}
+        {suggestions.length > 0 && <View style={styles.suggestions}>{suggestions.map((item) => <Pressable key={item.placeId} style={styles.suggestion} onPress={() => chooseAddress(item)}><Text style={styles.suggestionTitle}>{item.description}</Text></Pressable>)}</View>}
         <View style={styles.row}><Field half label="City" value={draft.city} placeholder="West Plano" onChange={(v) => set('city', v)} /><Field half label="State" value={draft.state} placeholder="TX" onChange={(v) => set('state', v)} /></View>
         <Field label="ZIP code" value={draft.zip} placeholder="75093" onChange={(v) => set('zip', v)} />
         <View style={styles.switchRow}><View style={{flex:1}}><Text style={styles.label}>Hide exact address until I approve access</Text><Text style={styles.hint}>Discover shows the city only.</Text></View><Switch value={!!draft.hideAddress} onValueChange={(v) => set('hideAddress', v)} trackColor={{true: colors.emerald}} /></View>
@@ -154,7 +196,7 @@ const styles = StyleSheet.create({
   content:{padding:22,paddingBottom:150},hero:{fontFamily:'serif',fontSize:29,color:colors.ink,marginBottom:5},sub:{fontSize:13,lineHeight:19,color:colors.muted,marginBottom:22},stack:{gap:13},grid:{flexDirection:'row',flexWrap:'wrap',gap:10},
   choice:{minHeight:76,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:16,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},selected:{borderColor:colors.emerald,backgroundColor:'#EAF4F0'},choiceTitle:{fontSize:16,fontWeight:'800',color:colors.ink},radio:{fontSize:22,color:colors.emerald},
   tile:{width:'48%',minHeight:70,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:12,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},tileText:{color:colors.ink,fontSize:12,fontWeight:'700',textAlign:'center'},
-  label:{fontSize:12,fontWeight:'700',color:colors.ink,marginBottom:6},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
+  label:{fontSize:12,fontWeight:'700',color:colors.ink,marginBottom:6},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},addressStatus:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4},addressError:{fontSize:11,fontWeight:'700',color:'#B42318'},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
   switchRow:{flexDirection:'row',alignItems:'center',backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14},map:{height:170,borderRadius:radius.md,backgroundColor:'#DDE9DF',alignItems:'center',justifyContent:'center'},mapPin:{fontSize:30,color:colors.emerald},mapText:{fontWeight:'800',color:colors.ink},
   lockedField:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:'#F1EEE7'},lockedValue:{fontSize:14,fontWeight:'800',color:colors.emerald},valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
   document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
