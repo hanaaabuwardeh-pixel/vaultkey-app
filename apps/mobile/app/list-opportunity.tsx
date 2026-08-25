@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router';
 import { colors, radius } from '@/lib/theme';
 import { getPropertyData, searchAddresses, type AddressSuggestion } from '@/lib/propertyData';
+import { saveListingDraft, submitListing } from '@/lib/listings';
 
 type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
 type Draft = Record<string, string | boolean>;
@@ -58,6 +59,9 @@ export default function ListOpportunityScreen() {
   const [addressLoading, setAddressLoading] = useState(false);
   const [addressError, setAddressError] = useState('');
   const [selectedPlaceId, setSelectedPlaceId] = useState('');
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
   const adaptiveFields = useMemo(() => fields[asset], [asset]);
 
@@ -83,6 +87,23 @@ export default function ListOpportunityScreen() {
 
     return () => clearTimeout(timer);
   }, [draft.address, selectedPlaceId]);
+
+  useEffect(() => {
+    if (step === 9 || submitting) return;
+    const timer = setTimeout(async () => {
+      setSaving(true);
+      try {
+        const id = await saveListingDraft(draftId, draft, step);
+        if (!draftId) setDraftId(id);
+      } catch {
+        // Final submission shows actionable database errors; draft saving stays unobtrusive.
+      } finally {
+        setSaving(false);
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [asset, draft, draftId, step, submitting]);
+
   const requiredForStep: Record<number, string[]> = {
     2: ['type'],
     3: ['address', 'city', 'state', 'zip'],
@@ -90,14 +111,27 @@ export default function ListOpportunityScreen() {
     5: adaptiveFields.map((field) => field.key),
     7: ['description'],
   };
-  const next = () => {
+  const next = async () => {
     const missing = (requiredForStep[step] || []).filter((key) => !String(draft[key] || '').trim());
     if (missing.length) {
       setError('Complete all required information before continuing.');
       return;
     }
     setError('');
-    step < 8 ? setStep(step + 1) : setStep(9);
+    if (step < 8) {
+      setStep(step + 1);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await submitListing(asset, draft, draftId);
+      setDraftId(null);
+      setStep(9);
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : 'Listing submission failed.');
+    } finally {
+      setSubmitting(false);
+    }
   };
   const back = () => {
     setError('');
@@ -138,12 +172,12 @@ export default function ListOpportunityScreen() {
       <Text style={styles.sub}>We’re reviewing your listing for completeness and independent valuation.</Text>
       <View style={styles.timeline}><Text style={styles.good}>● Submitted</Text><Text style={styles.timelineText}>Review · usually within 1 business day</Text><Text style={styles.timelineText}>Live · we’ll notify you when approved</Text></View>
       <Pressable style={styles.primary} onPress={() => router.replace('/discover')}><Text style={styles.primaryText}>Return to Discover</Text></Pressable>
-      <Pressable style={styles.secondary} onPress={() => { setStep(1); setDraft({ type: 'Single-Family', hideAddress: true }); }}><Text style={styles.secondaryText}>Add Another Opportunity</Text></Pressable>
+      <Pressable style={styles.secondary} onPress={() => { setStep(1); setDraftId(null); setDraft({ type: 'Single-Family', hideAddress: true, occupancy: 'Vacant', contact: 'Vault Key messages' }); }}><Text style={styles.secondaryText}>Add Another Opportunity</Text></Pressable>
     </View></SafeAreaView>
   );
 
   return <SafeAreaView style={styles.safe}>
-    <View style={styles.header}><Pressable onPress={back} hitSlop={12} style={styles.backButton}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.progress}>{step} of 8</Text><Text style={styles.saved}>Draft saved</Text></View>
+    <View style={styles.header}><Pressable onPress={back} hitSlop={12} style={styles.backButton}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.progress}>{step} of 8</Text><Text style={styles.saved}>{saving ? 'Saving…' : 'Draft saved'}</Text></View>
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.hero}>{title}</Text>
       <Text style={styles.sub}>{step === 1 ? 'Questions adapt to the opportunity you select.' : step === 4 ? 'VaultKey calculates value independently. Sellers cannot enter or change it.' : 'Complete the information buyers need to evaluate this opportunity.'}</Text>
@@ -184,7 +218,7 @@ export default function ListOpportunityScreen() {
         <Text style={styles.notice}>What you enter becomes what qualified buyers see in Discover. Independent value is published only after review.</Text>
       </View>}
     </ScrollView>
-    <View style={[styles.footer,{paddingBottom:Math.max(insets.bottom + 14, 28)}]}><Pressable style={styles.primary} onPress={next}><Text style={styles.primaryText}>{step === 7 ? 'Review Listing' : step === 8 ? 'Submit for Review' : 'Continue'}</Text></Pressable>{step === 8 && <Pressable style={styles.secondary}><Text style={styles.secondaryText}>Save Draft</Text></Pressable>}</View>
+    <View style={[styles.footer,{paddingBottom:Math.max(insets.bottom + 14, 28)}]}><Pressable disabled={submitting} style={[styles.primary, submitting && styles.disabled]} onPress={next}><Text style={styles.primaryText}>{submitting ? 'Submitting…' : step === 7 ? 'Review Listing' : step === 8 ? 'Submit for Review' : 'Continue'}</Text></Pressable>{step === 8 && <Pressable style={styles.secondary}><Text style={styles.secondaryText}>Save Draft</Text></Pressable>}</View>
   </SafeAreaView>;
 }
 
