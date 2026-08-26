@@ -24,8 +24,8 @@ const types: Record<Asset, string[]> = {
 };
 const fields: Record<Asset, { key: string; label: string; placeholder: string }[]> = {
   Residential: [
-    { key: 'beds', label: 'Bedrooms', placeholder: '4' }, { key: 'baths', label: 'Bathrooms', placeholder: '3' },
-    { key: 'livingArea', label: 'Living area (sq ft)', placeholder: '2,450' }, { key: 'yearBuilt', label: 'Year built', placeholder: '2005' },
+    { key: 'beds', label: 'Bedrooms', placeholder: 'Auto-filled when available' }, { key: 'baths', label: 'Bathrooms', placeholder: 'Auto-filled when available' },
+    { key: 'livingArea', label: 'Living area (sq ft)', placeholder: 'Auto-filled when available' }, { key: 'yearBuilt', label: 'Year built', placeholder: 'Auto-filled when available' },
     { key: 'condition', label: 'Condition', placeholder: 'Move-in ready / needs work' },
   ],
   Multifamily: [
@@ -145,6 +145,16 @@ export default function ListOpportunityScreen() {
     setAddressError('');
     try {
       const result = await getPropertyData(item.placeId);
+      const property = result.property as any;
+      const rooms = property?.building?.rooms ?? {};
+      const size = property?.building?.size ?? {};
+      const summary = property?.summary ?? {};
+      const buildingSummary = property?.building?.summary ?? {};
+      const beds = Number(rooms.beds) || '';
+      const baths = Number(rooms.bathstotal ?? rooms.bathscalc) || '';
+      const livingArea = Number(size.livingsize ?? size.universalsize ?? size.bldgsize) || '';
+      const yearBuilt = Number(summary.yearbuilt ?? buildingSummary.yearbuilteffective) || '';
+
       setDraft((current) => ({
         ...current,
         address: result.address.street,
@@ -153,6 +163,10 @@ export default function ListOpportunityScreen() {
         zip: result.address.zip,
         latitude: String(result.address.latitude ?? ''),
         longitude: String(result.address.longitude ?? ''),
+        beds: String(beds),
+        baths: String(baths),
+        livingArea: String(livingArea),
+        yearBuilt: String(yearBuilt),
         attomMatched: result.attomMatched,
         attomProperty: result.property ? JSON.stringify(result.property) : '',
       }));
