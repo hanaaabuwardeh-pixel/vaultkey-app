@@ -43,7 +43,7 @@ export const searchAddresses = async (input: string) => {
   return data.suggestions;
 };
 
-export const getPropertyData = async (placeId: string) =>
+export const getPropertyData = async (placeId: string, description: string) =>
   invoke<{
     address: VerifiedAddress;
     attomMatched: boolean;
@@ -52,4 +52,5 @@ export const getPropertyData = async (placeId: string) =>
   }>({
     action: 'details',
     placeId,
+    description,
   });

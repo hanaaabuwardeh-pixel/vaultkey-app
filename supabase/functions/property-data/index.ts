@@ -85,7 +85,23 @@ Deno.serve(async (request) => {
       const parts: GoogleComponent[] = place.addressComponents ?? [];
       const streetNumber = component(parts, 'street_number');
       const route = component(parts, 'route');
-      const address = [streetNumber, route].filter(Boolean).join(' ');
+      const selectedDescription = String(body.description ?? '').trim();
+      const describedStreet = selectedDescription.split(',')[0]?.trim() ?? '';
+      let address = [streetNumber, route].filter(Boolean).join(' ');
+
+      // Google occasionally returns a route-level place even when the user typed
+      // a complete house address. Preserve the selected suggestion's numbered
+      // street instead of silently dropping the house number.
+      if (!streetNumber && /^\d+[A-Za-z-]*\s+/.test(describedStreet)) {
+        address = describedStreet;
+      }
+
+      if (!/^\d+[A-Za-z-]*\s+/.test(address)) {
+        return json(
+          { error: 'Select a complete street address that begins with the house number.' },
+          400,
+        );
+      }
       const city =
         component(parts, 'locality') ||
         component(parts, 'postal_town') ||

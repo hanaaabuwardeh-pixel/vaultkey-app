@@ -151,7 +151,7 @@ export default function ListOpportunityScreen() {
     setAddressLoading(true);
     setAddressError('');
     try {
-      const result = await getPropertyData(item.placeId);
+      const result = await getPropertyData(item.placeId, item.description);
       const property = result.property as any;
       const rooms = property?.building?.rooms ?? {};
       const size = property?.building?.size ?? {};
@@ -170,6 +170,7 @@ export default function ListOpportunityScreen() {
         zip: result.address.zip,
         latitude: String(result.address.latitude ?? ''),
         longitude: String(result.address.longitude ?? ''),
+        formattedAddress: result.address.formattedAddress || item.description,
         beds: String(beds),
         baths: String(baths),
         livingArea: String(livingArea),
@@ -237,7 +238,7 @@ export default function ListOpportunityScreen() {
         <View style={styles.row}><Field half label="City" value={draft.city} placeholder="West Plano" onChange={(v) => set('city', v)} /><Field half label="State" value={draft.state} placeholder="TX" onChange={(v) => set('state', v)} /></View>
         <Field label="ZIP code" value={draft.zip} placeholder="75093" onChange={(v) => set('zip', v)} />
         <View style={styles.switchRow}><View style={{flex:1}}><Text style={styles.label}>Hide exact address until I approve access</Text><Text style={styles.hint}>Discover shows the city only.</Text></View><Switch value={!!draft.hideAddress} onValueChange={(v) => set('hideAddress', v)} trackColor={{true: colors.emerald}} /></View>
-        <View style={styles.map}><Text style={styles.mapPin}>●</Text><Text style={styles.mapText}>{String(draft.city || 'Property location')}</Text></View>
+        <View style={styles.map}><Text style={styles.mapPin}>●</Text><Text style={styles.mapText}>{String(draft.formattedAddress || [draft.address, draft.city, draft.state, draft.zip].filter(Boolean).join(', ') || 'Property location')}</Text></View>
       </View>}
       {step === 4 && <View style={styles.stack}>
         <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
