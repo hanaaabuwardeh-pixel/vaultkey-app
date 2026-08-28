@@ -96,6 +96,7 @@ Deno.serve(async (request) => {
 
       let property = null;
       let attomMatched = false;
+      let valuation = null;
       if (address && address2) {
         const params = new URLSearchParams({ address1: address, address2 });
         const attomResponse = await fetch(
@@ -111,7 +112,47 @@ Deno.serve(async (request) => {
         property = attomPayload?.property?.[0] ?? null;
         attomMatched = attomResponse.ok && Boolean(property);
         if (!attomResponse.ok) {
-          console.error('ATTOM lookup failed', attomResponse.status);
+          console.error('ATTOM lookup failed', attomResponse.status, attomPayload?.status?.msg);
+        }
+
+        for (const endpoint of ['attomavm/detail', 'avm/detail']) {
+          const avmResponse = await fetch(
+            `https://api.gateway.attomdata.com/propertyapi/v1.0.0/${endpoint}?${params}`,
+            {
+              headers: {
+                Accept: 'application/json',
+                APIKey: attomKey,
+              },
+            },
+          );
+          const avmPayload = await avmResponse.json().catch(() => null);
+          const avmProperty = avmPayload?.property?.[0] ?? null;
+          const amount = avmProperty?.avm?.amount ?? {};
+          const value = Number(amount.value);
+
+          if (avmResponse.ok && Number.isFinite(value) && value > 0) {
+            valuation = {
+              provider: 'ATTOM',
+              methodology: endpoint === 'attomavm/detail' ? 'ATTOM Cascaded AVM' : 'ATTOM AVM',
+              value,
+              low: Number(amount.low) || null,
+              high: Number(amount.high) || null,
+              confidence: Number(amount.scr) || null,
+              eventDate: avmProperty?.avm?.eventDate ?? null,
+              providerReference:
+                avmProperty?.identifier?.attomId ??
+                avmProperty?.identifier?.obPropId ??
+                null,
+            };
+            break;
+          }
+
+          console.warn(
+            'ATTOM AVM unavailable',
+            endpoint,
+            avmResponse.status,
+            avmPayload?.status?.msg ?? 'Unknown response',
+          );
         }
       }
 
@@ -127,6 +168,7 @@ Deno.serve(async (request) => {
         },
         attomMatched,
         property,
+        valuation,
       });
     }
 

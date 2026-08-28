@@ -22,6 +22,13 @@ const types: Record<Asset, string[]> = {
   Land: ['Residential Lot', 'Commercial Lot', 'Industrial', 'Agricultural / Ranch', 'Development Land'],
   Business: ['Restaurant', 'Retail', 'Automotive', 'Service', 'Healthcare', 'Other'],
 };
+const money = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
+
 const fields: Record<Asset, { key: string; label: string; placeholder: string }[]> = {
   Residential: [
     { key: 'beds', label: 'Bedrooms', placeholder: 'Auto-filled when available' }, { key: 'baths', label: 'Bathrooms', placeholder: 'Auto-filled when available' },
@@ -167,6 +174,11 @@ export default function ListOpportunityScreen() {
         baths: String(baths),
         livingArea: String(livingArea),
         yearBuilt: String(yearBuilt),
+        marketValue: String(result.valuation?.value ?? ''),
+        avmLow: String(result.valuation?.low ?? ''),
+        avmHigh: String(result.valuation?.high ?? ''),
+        avmConfidence: String(result.valuation?.confidence ?? ''),
+        attomValuation: result.valuation ? JSON.stringify(result.valuation) : '',
         attomMatched: result.attomMatched,
         attomProperty: result.property ? JSON.stringify(result.property) : '',
       }));
@@ -177,6 +189,24 @@ export default function ListOpportunityScreen() {
       setAddressLoading(false);
     }
   };
+  const askingPrice = Number(String(draft.askingPrice ?? '').replace(/[^0-9.]/g, '')) || 0;
+  const marketValue = Number(draft.marketValue) || 0;
+  const avmLow = Number(draft.avmLow) || 0;
+  const avmHigh = Number(draft.avmHigh) || 0;
+  const upside = marketValue > 0 && askingPrice > 0 ? marketValue - askingPrice : 0;
+  const discountPercent =
+    marketValue > 0 && askingPrice > 0
+      ? ((marketValue - askingPrice) / marketValue) * 100
+      : 0;
+  const qualification =
+    discountPercent >= 20
+      ? 'Vault Pick · 20%+ below ATTOM value'
+      : discountPercent >= 15
+        ? 'Qualified · 15%+ below ATTOM value'
+        : askingPrice > 0 && marketValue > 0
+          ? 'Does not meet the 15% minimum'
+          : 'Enter the asking price to calculate the discount';
+
   const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
 
   if (step === 9) return (
@@ -211,9 +241,9 @@ export default function ListOpportunityScreen() {
       </View>}
       {step === 4 && <View style={styles.stack}>
         <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
-        <View style={styles.lockedField}><Text style={styles.label}>Estimated market value</Text><Text style={styles.lockedValue}>Calculated automatically after verification</Text></View>
-        <View style={styles.lockedField}><Text style={styles.label}>Minimum required discount</Text><Text style={styles.lockedValue}>15% below verified market value</Text></View>
-        <View style={styles.valuation}><Text style={styles.valueBig}>Independent valuation required</Text><Text style={styles.hint}>VaultKey or an approved third-party data provider determines market value. The seller cannot edit it. Listings below 15% do not qualify; listings at 20%+ receive a Vault Pick label.</Text></View>
+        <View style={styles.lockedField}><Text style={styles.label}>ATTOM estimated market value</Text><Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : 'AVM unavailable · manual review required'}</Text>{avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}</View>
+        <View style={styles.lockedField}><Text style={styles.label}>Potential upside</Text><Text style={styles.lockedValue}>{marketValue > 0 && askingPrice > 0 ? `${money(upside)} · ${discountPercent.toFixed(1)}% below value` : 'Enter asking price to calculate'}</Text></View>
+        <View style={styles.valuation}><Text style={styles.valueBig}>{qualification}</Text><Text style={styles.hint}>The ATTOM estimate is locked and cannot be edited by the seller. Listings at least 15% below the verified value qualify; listings at 20%+ receive a Vault Pick label.</Text></View>
       </View>}
       {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
       {step === 6 && <View style={styles.stack}>

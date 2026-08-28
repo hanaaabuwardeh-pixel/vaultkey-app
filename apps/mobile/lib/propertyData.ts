@@ -5,6 +5,17 @@ export type AddressSuggestion = {
   description: string;
 };
 
+export type AttomValuation = {
+  provider: string;
+  methodology: string;
+  value: number;
+  low: number | null;
+  high: number | null;
+  confidence: number | null;
+  eventDate: string | null;
+  providerReference: string | number | null;
+};
+
 export type VerifiedAddress = {
   street: string;
   city: string;
@@ -37,6 +48,7 @@ export const getPropertyData = async (placeId: string) =>
     address: VerifiedAddress;
     attomMatched: boolean;
     property: Record<string, unknown> | null;
+    valuation: AttomValuation | null;
   }>({
     action: 'details',
     placeId,
