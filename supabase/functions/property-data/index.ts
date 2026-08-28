@@ -108,7 +108,9 @@ Deno.serve(async (request) => {
         component(parts, 'sublocality');
       const state = component(parts, 'administrative_area_level_1', true);
       const zip = component(parts, 'postal_code');
-      const address2 = [city, state, zip].filter(Boolean).join(' ');
+      const address2 = city && state
+        ? `${city}, ${state}${zip ? ` ${zip}` : ''}`
+        : [city, state, zip].filter(Boolean).join(' ');
 
       let property = null;
       let attomMatched = false;
@@ -131,9 +133,25 @@ Deno.serve(async (request) => {
           console.error('ATTOM lookup failed', attomResponse.status, attomPayload?.status?.msg);
         }
 
-        for (const endpoint of ['attomavm/detail', 'avm/detail']) {
+        const attomId =
+          property?.identifier?.attomId ??
+          property?.identifier?.obPropId ??
+          property?.identifier?.Id ??
+          null;
+        const avmRequests = [
+          { endpoint: 'attomavm/detail', params },
+          { endpoint: 'avm/detail', params },
+          ...(attomId
+            ? [{
+                endpoint: 'avm/snapshot',
+                params: new URLSearchParams({ attomId: String(attomId) }),
+              }]
+            : []),
+        ];
+
+        for (const request of avmRequests) {
           const avmResponse = await fetch(
-            `https://api.gateway.attomdata.com/propertyapi/v1.0.0/${endpoint}?${params}`,
+            `https://api.gateway.attomdata.com/propertyapi/v1.0.0/${request.endpoint}?${request.params}`,
             {
               headers: {
                 Accept: 'application/json',
@@ -149,7 +167,7 @@ Deno.serve(async (request) => {
           if (avmResponse.ok && Number.isFinite(value) && value > 0) {
             valuation = {
               provider: 'ATTOM',
-              methodology: endpoint === 'attomavm/detail' ? 'ATTOM Cascaded AVM' : 'ATTOM AVM',
+              methodology: request.endpoint === 'attomavm/detail' ? 'ATTOM Cascaded AVM' : 'ATTOM AVM',
               value,
               low: Number(amount.low) || null,
               high: Number(amount.high) || null,
@@ -165,7 +183,7 @@ Deno.serve(async (request) => {
 
           console.warn(
             'ATTOM AVM unavailable',
-            endpoint,
+            request.endpoint,
             avmResponse.status,
             avmPayload?.status?.msg ?? 'Unknown response',
           );
