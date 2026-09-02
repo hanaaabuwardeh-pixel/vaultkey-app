@@ -78,7 +78,9 @@ export const submitListing = async (
       owner_id: user.id,
       asset_class: assetClass,
       subtype: String(payload.type),
-      title: String(payload.address || `${payload.city}, ${payload.state}`),
+      title: payload.hideAddress
+        ? `${payload.city}, ${payload.state}`
+        : String(payload.address || `${payload.city}, ${payload.state}`),
       description: String(payload.description || ''),
       city: String(payload.city),
       state: String(payload.state),

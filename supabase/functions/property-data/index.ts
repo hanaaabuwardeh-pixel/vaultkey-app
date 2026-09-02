@@ -144,7 +144,7 @@ Deno.serve(async (request) => {
           ...(attomId
             ? [{
                 endpoint: 'avm/snapshot',
-                params: new URLSearchParams({ attomId: String(attomId) }),
+                params: new URLSearchParams({ attomid: String(attomId) }),
               }]
             : []),
         ];
