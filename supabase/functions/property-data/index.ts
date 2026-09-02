@@ -26,7 +26,7 @@ Deno.serve(async (request) => {
 
   const googleKey = Deno.env.get('GOOGLE_PLACES_API_KEY');
   const attomKey = Deno.env.get('ATTOM_API_KEY');
-  if (!googleKey || !attomKey) return json({ error: 'Property data services are not configured.' }, 500);
+  if (!googleKey) return json({ error: 'Property data services are not configured.' }, 500);
 
   try {
     const body = await request.json();
@@ -67,6 +67,8 @@ Deno.serve(async (request) => {
     }
 
     if (body.action === 'details') {
+      if (!attomKey) return json({ error: 'Property data services are not configured.' }, 500);
+
       const placeId = String(body.placeId ?? '').trim();
       if (!placeId) return json({ error: 'A place ID is required.' }, 400);
 
@@ -149,9 +151,9 @@ Deno.serve(async (request) => {
             : []),
         ];
 
-        for (const request of avmRequests) {
+        for (const avmRequest of avmRequests) {
           const avmResponse = await fetch(
-            `https://api.gateway.attomdata.com/propertyapi/v1.0.0/${request.endpoint}?${request.params}`,
+            `https://api.gateway.attomdata.com/propertyapi/v1.0.0/${avmRequest.endpoint}?${avmRequest.params}`,
             {
               headers: {
                 Accept: 'application/json',
@@ -167,7 +169,7 @@ Deno.serve(async (request) => {
           if (avmResponse.ok && Number.isFinite(value) && value > 0) {
             valuation = {
               provider: 'ATTOM',
-              methodology: request.endpoint === 'attomavm/detail' ? 'ATTOM Cascaded AVM' : 'ATTOM AVM',
+              methodology: avmRequest.endpoint === 'attomavm/detail' ? 'ATTOM Cascaded AVM' : 'ATTOM AVM',
               value,
               low: Number(amount.low) || null,
               high: Number(amount.high) || null,
@@ -183,7 +185,7 @@ Deno.serve(async (request) => {
 
           console.warn(
             'ATTOM AVM unavailable',
-            request.endpoint,
+            avmRequest.endpoint,
             avmResponse.status,
             avmPayload?.status?.msg ?? 'Unknown response',
           );
