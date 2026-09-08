@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { colors, radius } from '@/lib/theme';
 import { getPropertyData, searchAddresses, type AddressSuggestion } from '@/lib/propertyData';
 import { saveListingDraft, submitListing } from '@/lib/listings';
+import { TIER_LABELS, centsToDollarString, discountPercentOf, dollarsToCents, tierPriceCents } from '@/lib/pricing';
 
 type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
 type Draft = Record<string, string | boolean>;
@@ -124,6 +125,13 @@ export default function ListOpportunityScreen() {
       setError('Complete all required information before continuing.');
       return;
     }
+    if (step === 4) {
+      const pricingError = pricingTierError();
+      if (pricingError) {
+        setError(pricingError);
+        return;
+      }
+    }
     setError('');
     if (step < 8) {
       setStep(step + 1);
@@ -180,6 +188,12 @@ export default function ListOpportunityScreen() {
         avmHigh: String(result.valuation?.high ?? ''),
         avmConfidence: String(result.valuation?.confidence ?? ''),
         attomValuation: result.valuation ? JSON.stringify(result.valuation) : '',
+        // A new address means a new market value baseline -- any
+        // already-chosen pricing tier/price was computed against the old
+        // one and is no longer valid.
+        pricingTier: '',
+        customPercent: '',
+        askingPrice: '',
         attomMatched: result.attomMatched,
         attomProperty: result.property ? JSON.stringify(result.property) : '',
       }));
@@ -201,16 +215,61 @@ export default function ListOpportunityScreen() {
       : 0;
   const avmUnavailable = askingPrice > 0 && marketValue <= 0;
   const attomUnavailableMessage = 'ATTOM AVM unavailable — manual valuation required';
-  const qualification =
-    discountPercent >= 20
-      ? 'Vault Pick · 20%+ below ATTOM value'
-      : discountPercent >= 15
-        ? 'Qualified · 15%+ below ATTOM value'
-        : askingPrice > 0 && marketValue > 0
-          ? 'Does not meet the 15% minimum'
-          : avmUnavailable
-            ? attomUnavailableMessage
-            : 'Enter the asking price to calculate the discount';
+
+  // VaultKey is a below-market marketplace: a listing may only be priced at
+  // 10%, 15%, or 20% below VaultKey's estimated market value, or a custom
+  // discount strictly greater than 20%. This is only the client-side copy
+  // of that rule, for immediate feedback -- the property-data edge function
+  // independently re-fetches ATTOM's value and enforces the same rule
+  // server-side before a listing is ever written, so this can't be bypassed
+  // by editing these fields directly.
+  const marketValueCents = Math.round(marketValue * 100);
+  const askingPriceCents = Math.round(askingPrice * 100);
+  const tier10Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 10) : 0;
+  const tier15Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 15) : 0;
+  const tier20Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 20) : 0;
+  const pricingTier = String(draft.pricingTier || '');
+  const customPercent = String(draft.customPercent || '');
+  const customBelowLimitMessage = `Custom pricing is available for sellers who want to price more than 20% below VaultKey's estimated market value. Choose the 10%, 15%, or 20% option above, or enter a price below ${money(tier20Cents / 100)}.`;
+
+  const selectTier = (tier: '10' | '15' | '20') => {
+    const cents = { '10': tier10Cents, '15': tier15Cents, '20': tier20Cents }[tier];
+    setDraft((d) => ({ ...d, pricingTier: tier, askingPrice: centsToDollarString(cents), customPercent: '' }));
+  };
+  const selectCustomTier = () => setDraft((d) => ({ ...d, pricingTier: 'custom' }));
+  const setCustomPercentValue = (value: string) => {
+    const percent = Number(value.replace(/[^0-9.]/g, ''));
+    const priceCents = Number.isFinite(percent) && percent > 0 ? tierPriceCents(marketValueCents, percent) : 0;
+    setDraft((d) => ({
+      ...d,
+      pricingTier: 'custom',
+      customPercent: value,
+      askingPrice: priceCents > 0 ? centsToDollarString(priceCents) : '',
+    }));
+  };
+  const setCustomPriceValue = (value: string) => {
+    const priceCents = dollarsToCents(value);
+    setDraft((d) => ({
+      ...d,
+      pricingTier: 'custom',
+      askingPrice: value,
+      customPercent: priceCents > 0 ? String(discountPercentOf(marketValueCents, priceCents)) : '',
+    }));
+  };
+
+  const pricingTierError = (): string | null => {
+    if (marketValue <= 0) return askingPrice > 0 ? null : 'Enter an asking price.';
+    if (!pricingTier) return 'Choose how you want to price this property.';
+    if (pricingTier === 'custom') {
+      if (askingPriceCents <= 0) return 'Enter a custom discount percentage or listing price.';
+      if (askingPriceCents >= marketValueCents) return "The asking price must be below VaultKey's estimated market value.";
+      if (askingPriceCents >= tier20Cents) return customBelowLimitMessage;
+      return null;
+    }
+    // '10' / '15' / '20': the price was set programmatically by selectTier
+    // and is always valid by construction.
+    return null;
+  };
 
   const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
 
@@ -245,10 +304,39 @@ export default function ListOpportunityScreen() {
         <View style={styles.map}><Text style={styles.mapPin}>●</Text><Text style={styles.mapText}>{String(draft.formattedAddress || [draft.address, draft.city, draft.state, draft.zip].filter(Boolean).join(', ') || 'Property location')}</Text></View>
       </View>}
       {step === 4 && <View style={styles.stack}>
-        <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
-        <View style={styles.lockedField}><Text style={styles.label}>ATTOM estimated market value</Text><Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : attomUnavailableMessage}</Text>{avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}</View>
-        <View style={styles.lockedField}><Text style={styles.label}>Potential upside</Text><Text style={styles.lockedValue}>{marketValue > 0 && askingPrice > 0 ? `${money(upside)} · ${discountPercent.toFixed(1)}% below value` : avmUnavailable ? attomUnavailableMessage : 'Enter asking price to calculate'}</Text></View>
-        <View style={styles.valuation}><Text style={styles.valueBig}>{qualification}</Text><Text style={styles.hint}>The ATTOM estimate is locked and cannot be edited by the seller. Listings at least 15% below the verified value qualify; listings at 20%+ receive a Vault Pick label.</Text></View>
+        <View style={styles.lockedField}>
+          <Text style={styles.label}>VaultKey Estimated Market Value</Text>
+          <Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : attomUnavailableMessage}</Text>
+          {marketValue > 0 ? <Text style={styles.hint}>Based on ATTOM property valuation data.</Text> : null}
+          {avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}
+        </View>
+
+        {marketValue > 0 ? <View style={styles.stack}>
+          <Text style={styles.section}>How aggressively would you like to price your property?</Text>
+          <Choice label="10% Below" note={money(tier10Cents / 100)} selected={pricingTier === '10'} onPress={() => selectTier('10')} />
+          <Choice label="15% Below" note={money(tier15Cents / 100)} selected={pricingTier === '15'} onPress={() => selectTier('15')} />
+          <Choice label="20% Below" note={money(tier20Cents / 100)} selected={pricingTier === '20'} onPress={() => selectTier('20')} />
+          <Choice label="Custom — 20%+ Below" note="Choose a larger discount" selected={pricingTier === 'custom'} onPress={selectCustomTier} />
+
+          {pricingTier === 'custom' && <View style={styles.stack}>
+            <View style={styles.row}>
+              <Field half label="Discount %" value={customPercent} placeholder="27" onChange={setCustomPercentValue} />
+              <Field half label="Listing price" value={draft.askingPrice} placeholder="$365,000" onChange={setCustomPriceValue} />
+            </View>
+            <Text style={styles.hint}>{customBelowLimitMessage}</Text>
+          </View>}
+
+          {pricingTier && askingPrice > 0 ? <View style={styles.valuation}>
+            <Text style={styles.valueBig}>{money(askingPrice)} · {discountPercent.toFixed(1)}% below value</Text>
+            <Text style={styles.hint}>{TIER_LABELS[{ '10': '10_percent', '15': '15_percent', '20': '20_percent', custom: 'custom' }[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The ATTOM estimate is locked and cannot be edited by the seller.</Text>
+          </View> : null}
+        </View> : <View style={styles.stack}>
+          <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
+          <View style={styles.valuation}>
+            <Text style={styles.valueBig}>{attomUnavailableMessage}</Text>
+            <Text style={styles.hint}>VaultKey could not retrieve an independent value for this property. Your listing will be submitted for manual review instead of an automatic pricing tier.</Text>
+          </View>
+        </View>}
       </View>}
       {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
       {step === 6 && <View style={styles.stack}>
