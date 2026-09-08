@@ -16,6 +16,10 @@ export type Opportunity = {
   metrics: Array<{ label: string; value: string }>;
   verified: boolean;
   accessRequired: boolean;
+  // Undefined/true for opportunities with a real independent valuation.
+  // Explicitly false marks a listing still awaiting ATTOM AVM data, so its
+  // card can show that instead of a fabricated 0% / $0.
+  hasIndependentValuation?: boolean;
 };
 
 export const opportunities: Opportunity[] = [

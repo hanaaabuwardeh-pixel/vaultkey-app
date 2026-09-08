@@ -138,14 +138,21 @@ Deno.serve(async (request) => {
           property?.identifier?.obPropId ??
           property?.identifier?.Id ??
           null;
+        // attomavm/detail and avm/snapshot are both ATTOM-ID-keyed lookups: they
+        // need `attomid` (lowercase, matching ATTOM's own query parameter
+        // convention), not an address1/address2 search. Sending them the same
+        // address params used for property/detail made them fail every time
+        // with "SuccessWithoutResult", regardless of whether the property
+        // actually has AVM coverage. avm/detail is the one AVM endpoint that
+        // genuinely accepts address1/address2, so it's kept as an
+        // address-based fallback when no ATTOM ID was resolved.
         const avmRequests = [
-          { endpoint: 'attomavm/detail', params },
+          ...(attomId
+            ? [{ endpoint: 'attomavm/detail', params: new URLSearchParams({ attomid: String(attomId) }) }]
+            : []),
           { endpoint: 'avm/detail', params },
           ...(attomId
-            ? [{
-                endpoint: 'avm/snapshot',
-                params: new URLSearchParams({ attomId: String(attomId) }),
-              }]
+            ? [{ endpoint: 'avm/snapshot', params: new URLSearchParams({ attomid: String(attomId) }) }]
             : []),
         ];
 
