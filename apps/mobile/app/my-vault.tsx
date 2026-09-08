@@ -33,6 +33,14 @@ export default function MyVaultScreen() {
         setMyListings(rows.map((row) => {
           const assetClass = (row.asset_class.charAt(0).toUpperCase() + row.asset_class.slice(1)) as Opportunity['assetClass'];
           const askingPrice = Math.round(Number(row.asking_price_cents) / 100);
+          // asset_details carries the market value ATTOM returned at
+          // submission time (see submitListing). A missing/zero value means
+          // ATTOM had no AVM for this property -- never treat that as a real
+          // $0 valuation or a real 0% discount.
+          const marketValue = Number(row.asset_details?.marketValue) || 0;
+          const hasIndependentValuation = marketValue > 0;
+          const discount = hasIndependentValuation ? Math.round(((marketValue - askingPrice) / marketValue) * 100) : 0;
+          const upside = hasIndependentValuation ? marketValue - askingPrice : 0;
           return {
             id: row.id,
             assetClass,
@@ -40,9 +48,10 @@ export default function MyVaultScreen() {
             title: row.title,
             location: [row.city, row.state].filter(Boolean).join(', '),
             askingPrice,
-            marketValue: 0,
-            discount: 0,
-            upside: 0,
+            marketValue,
+            discount,
+            upside,
+            hasIndependentValuation,
             strategy: row.status.replaceAll('_', ' '),
             condition: String(row.asset_details?.condition ?? 'Pending review'),
             summary: String(row.asset_details?.description ?? ''),
@@ -170,7 +179,9 @@ export default function MyVaultScreen() {
                 <Text style={styles.location}>{item.location}</Text>
                 <Text style={styles.meta}>{item.subtype} · {item.strategy}</Text>
                 <Text style={styles.price}>{money(item.askingPrice)}</Text>
-                <Text style={styles.discount}>{item.discount}% below value · {money(item.upside)} upside</Text>
+                {item.hasIndependentValuation === false
+                  ? <Text style={styles.discount}>ATTOM AVM unavailable — manual valuation required</Text>
+                  : <Text style={styles.discount}>{item.discount}% below value · {money(item.upside)} upside</Text>}
               </View>
             </Pressable>
           );

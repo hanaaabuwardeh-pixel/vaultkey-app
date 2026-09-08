@@ -199,6 +199,8 @@ export default function ListOpportunityScreen() {
     marketValue > 0 && askingPrice > 0
       ? ((marketValue - askingPrice) / marketValue) * 100
       : 0;
+  const avmUnavailable = askingPrice > 0 && marketValue <= 0;
+  const attomUnavailableMessage = 'ATTOM AVM unavailable — manual valuation required';
   const qualification =
     discountPercent >= 20
       ? 'Vault Pick · 20%+ below ATTOM value'
@@ -206,7 +208,9 @@ export default function ListOpportunityScreen() {
         ? 'Qualified · 15%+ below ATTOM value'
         : askingPrice > 0 && marketValue > 0
           ? 'Does not meet the 15% minimum'
-          : 'Enter the asking price to calculate the discount';
+          : avmUnavailable
+            ? attomUnavailableMessage
+            : 'Enter the asking price to calculate the discount';
 
   const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
 
@@ -242,8 +246,8 @@ export default function ListOpportunityScreen() {
       </View>}
       {step === 4 && <View style={styles.stack}>
         <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
-        <View style={styles.lockedField}><Text style={styles.label}>ATTOM estimated market value</Text><Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : 'AVM unavailable · manual review required'}</Text>{avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}</View>
-        <View style={styles.lockedField}><Text style={styles.label}>Potential upside</Text><Text style={styles.lockedValue}>{marketValue > 0 && askingPrice > 0 ? `${money(upside)} · ${discountPercent.toFixed(1)}% below value` : 'Enter asking price to calculate'}</Text></View>
+        <View style={styles.lockedField}><Text style={styles.label}>ATTOM estimated market value</Text><Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : attomUnavailableMessage}</Text>{avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}</View>
+        <View style={styles.lockedField}><Text style={styles.label}>Potential upside</Text><Text style={styles.lockedValue}>{marketValue > 0 && askingPrice > 0 ? `${money(upside)} · ${discountPercent.toFixed(1)}% below value` : avmUnavailable ? attomUnavailableMessage : 'Enter asking price to calculate'}</Text></View>
         <View style={styles.valuation}><Text style={styles.valueBig}>{qualification}</Text><Text style={styles.hint}>The ATTOM estimate is locked and cannot be edited by the seller. Listings at least 15% below the verified value qualify; listings at 20%+ receive a Vault Pick label.</Text></View>
       </View>}
       {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
