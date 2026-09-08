@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { invokePropertyData } from '@/lib/propertyData';
 
 export type ListingDraftPayload = Record<string, string | boolean>;
 
@@ -10,6 +11,10 @@ export type MyListing = {
   city: string;
   state: string;
   asking_price_cents: number;
+  market_value_cents: number | null;
+  discount_cents: number | null;
+  discount_percent: number | null;
+  pricing_tier: string | null;
   status: string;
   asset_details: Record<string, unknown>;
   created_at: string;
@@ -44,58 +49,43 @@ export const saveListingDraft = async (
   return data.id as string;
 };
 
-const priceInCents = (value: unknown) => {
-  const amount = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid asking price.');
-  return Math.round(amount * 100);
-};
-
 export const submitListing = async (
   asset: string,
   payload: ListingDraftPayload,
   draftId: string | null,
 ) => {
-  const user = await requireUser();
+  if (!supabase) throw new Error('VaultKey is not connected to Supabase.');
+  await requireUser(); // fail fast locally; the edge function re-verifies the session itself
+
   const assetClass = asset.toLowerCase();
   const allowed = ['residential', 'multifamily', 'commercial', 'land', 'business'];
   if (!allowed.includes(assetClass)) throw new Error('Choose a valid asset class.');
 
-  const assetDetails = {
-    ...payload,
-    google: {
-      latitude: payload.latitude || null,
-      longitude: payload.longitude || null,
-    },
-    attom: {
-      matched: Boolean(payload.attomMatched),
-      property: payload.attomProperty ? JSON.parse(String(payload.attomProperty)) : null,
-    },
-  };
-
-  const { data, error } = await supabase!
-    .from('listings')
-    .insert({
-      owner_id: user.id,
-      asset_class: assetClass,
-      subtype: String(payload.type),
-      title: String(payload.address || `${payload.city}, ${payload.state}`),
-      description: String(payload.description || ''),
-      city: String(payload.city),
-      state: String(payload.state),
-      postal_code: String(payload.zip || ''),
-      exact_address: String(payload.address || ''),
-      hide_exact_address: Boolean(payload.hideAddress),
-      asking_price_cents: priceInCents(payload.askingPrice),
-      status: 'submitted',
-      asset_details: assetDetails,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
+  // The seller's asking price and pricing tier are only a proposal here --
+  // the edge function independently re-fetches ATTOM's market value and
+  // validates the price against it before writing anything. Nothing this
+  // client sends for market value/discount/tier is trusted.
+  const data = await invokePropertyData<{ id: string }>({
+    action: 'submit',
+    assetClass,
+    subtype: String(payload.type ?? ''),
+    description: String(payload.description ?? ''),
+    address: String(payload.address ?? ''),
+    city: String(payload.city ?? ''),
+    state: String(payload.state ?? ''),
+    zip: String(payload.zip ?? ''),
+    hideAddress: Boolean(payload.hideAddress),
+    askingPrice: payload.askingPrice,
+    pricingTier: payload.pricingTier,
+    latitude: payload.latitude,
+    longitude: payload.longitude,
+    attomMatched: payload.attomMatched,
+    attomProperty: payload.attomProperty,
+    assetDetails: payload,
+  });
 
   if (draftId) {
-    await supabase!.from('listing_drafts').delete().eq('id', draftId);
+    await supabase.from('listing_drafts').delete().eq('id', draftId);
   }
 
   return data.id as string;
@@ -105,7 +95,7 @@ export const getMyListings = async (): Promise<MyListing[]> => {
   const user = await requireUser();
   const { data, error } = await supabase!
     .from('listings')
-    .select('id,asset_class,subtype,title,city,state,asking_price_cents,status,asset_details,created_at')
+    .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_cents,discount_percent,pricing_tier,status,asset_details,created_at')
     .eq('owner_id', user.id)
     .order('created_at', { ascending: false });
 

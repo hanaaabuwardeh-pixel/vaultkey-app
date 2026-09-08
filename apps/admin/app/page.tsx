@@ -13,8 +13,21 @@ type Listing = {
   city: string;
   state: string;
   asking_price_cents: number;
+  market_value_cents: number | null;
+  discount_percent: number | null;
+  pricing_tier: string | null;
   status: string;
   created_at: string;
+};
+
+// Server-computed only (see the property-data edge function's `submit`
+// action) -- kept in sync with apps/mobile/lib/pricing.ts's TIER_LABELS.
+const TIER_LABELS: Record<string, string> = {
+  '10_percent': '10% Below — VaultKey Deal',
+  '15_percent': '15% Below — Strong Deal',
+  '20_percent': '20% Below — Hot Deal',
+  custom: 'More than 20% Below — Exceptional Deal',
+  pending_valuation: 'Pending independent valuation',
 };
 
 const money = (cents: number) =>
@@ -57,7 +70,7 @@ export default function AdminHome() {
     setRole(profile.role);
     const { data, error } = await client
       .from('listings')
-      .select('id,asset_class,subtype,title,city,state,asking_price_cents,status,created_at')
+      .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_percent,pricing_tier,status,created_at')
       .in('status', ['submitted', 'under_review', 'changes_required', 'approved', 'rejected'])
       .order('created_at', { ascending: true });
 
@@ -173,6 +186,11 @@ export default function AdminHome() {
             <div className="eyebrow">{item.asset_class} · {item.subtype}</div>
             <h3>{item.title}</h3>
             <p>{item.city}, {item.state} · {money(item.asking_price_cents)} · <b>{item.status.replaceAll('_', ' ')}</b></p>
+            <p className="pricing">
+              {item.pricing_tier === 'pending_valuation' || item.market_value_cents == null
+                ? 'ATTOM AVM unavailable — pending manual valuation'
+                : `${money(item.market_value_cents)} ATTOM value · ${Number(item.discount_percent).toFixed(1)}% below market · ${TIER_LABELS[item.pricing_tier ?? ''] ?? item.pricing_tier}`}
+            </p>
           </div>
           <div className="actions">
             {item.status === 'submitted' ? <button disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'under_review')}>Start review</button> : null}

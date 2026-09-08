@@ -20,6 +20,9 @@ export type Opportunity = {
   // Explicitly false marks a listing still awaiting ATTOM AVM data, so its
   // card can show that instead of a fabricated 0% / $0.
   hasIndependentValuation?: boolean;
+  // Server-computed pricing tier ('10_percent'/'15_percent'/'20_percent'/
+  // 'custom'/'pending_valuation'), see lib/pricing.ts TIER_LABELS.
+  pricingTier?: string | null;
 };
 
 export const opportunities: Opportunity[] = [

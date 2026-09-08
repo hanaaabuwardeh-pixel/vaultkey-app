@@ -6,6 +6,7 @@ import { DiscoverNav } from '@/components/DiscoverNav';
 import { colors, radius } from '@/lib/theme';
 import { money, opportunities, type Opportunity } from '@/lib/opportunities';
 import { getMyListings } from '@/lib/listings';
+import { TIER_LABELS } from '@/lib/pricing';
 
 const propertyImage = require('../assets/west-plano.jpg');
 const tabs = ['Saved', 'Requested', 'Unlocked', 'My Listings'] as const;
@@ -33,14 +34,16 @@ export default function MyVaultScreen() {
         setMyListings(rows.map((row) => {
           const assetClass = (row.asset_class.charAt(0).toUpperCase() + row.asset_class.slice(1)) as Opportunity['assetClass'];
           const askingPrice = Math.round(Number(row.asking_price_cents) / 100);
-          // asset_details carries the market value ATTOM returned at
-          // submission time (see submitListing). A missing/zero value means
-          // ATTOM had no AVM for this property -- never treat that as a real
-          // $0 valuation or a real 0% discount.
-          const marketValue = Number(row.asset_details?.marketValue) || 0;
-          const hasIndependentValuation = marketValue > 0;
-          const discount = hasIndependentValuation ? Math.round(((marketValue - askingPrice) / marketValue) * 100) : 0;
-          const upside = hasIndependentValuation ? marketValue - askingPrice : 0;
+          // market_value_cents/discount_cents/discount_percent/pricing_tier
+          // are written server-side only, by the property-data edge
+          // function's `submit` action, from its own freshly-fetched ATTOM
+          // value. A null market value means ATTOM had no AVM for this
+          // property at submission time -- never treat that as a real $0
+          // valuation or a real 0% discount.
+          const hasIndependentValuation = row.market_value_cents != null && row.pricing_tier !== 'pending_valuation';
+          const marketValue = hasIndependentValuation ? Math.round(Number(row.market_value_cents) / 100) : 0;
+          const upside = hasIndependentValuation ? Math.round(Number(row.discount_cents) / 100) : 0;
+          const discount = hasIndependentValuation ? Number(row.discount_percent) : 0;
           return {
             id: row.id,
             assetClass,
@@ -52,6 +55,7 @@ export default function MyVaultScreen() {
             discount,
             upside,
             hasIndependentValuation,
+            pricingTier: row.pricing_tier,
             strategy: row.status.replaceAll('_', ' '),
             condition: String(row.asset_details?.condition ?? 'Pending review'),
             summary: String(row.asset_details?.description ?? ''),
@@ -181,7 +185,7 @@ export default function MyVaultScreen() {
                 <Text style={styles.price}>{money(item.askingPrice)}</Text>
                 {item.hasIndependentValuation === false
                   ? <Text style={styles.discount}>ATTOM AVM unavailable — manual valuation required</Text>
-                  : <Text style={styles.discount}>{item.discount}% below value · {money(item.upside)} upside</Text>}
+                  : <Text style={styles.discount}>{item.discount}% below value · {money(item.upside)} upside{item.pricingTier && TIER_LABELS[item.pricingTier] ? ` · ${TIER_LABELS[item.pricingTier]}` : ''}</Text>}
               </View>
             </Pressable>
           );
