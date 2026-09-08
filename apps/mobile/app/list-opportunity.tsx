@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { colors, radius } from '@/lib/theme';
@@ -29,6 +29,12 @@ const money = (value: number) =>
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+
+// Display label for the pricing-tier dropdown field and its modal header.
+// Purely presentational -- has no bearing on which tiers are allowed.
+const tierOptionLabel = (tier: string) =>
+  ({ '10': '10% Below', '15': '15% Below', '20': '20% Below', custom: 'Custom — 20%+ Below' } as Record<string, string>)[tier] ??
+  'Select a discount';
 
 const fields: Record<Asset, { key: string; label: string; placeholder: string }[]> = {
   Residential: [
@@ -70,6 +76,7 @@ export default function ListOpportunityScreen() {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [tierMenuOpen, setTierMenuOpen] = useState(false);
   const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
   const adaptiveFields = useMemo(() => fields[asset], [asset]);
 
@@ -231,6 +238,7 @@ export default function ListOpportunityScreen() {
   const pricingTier = String(draft.pricingTier || '');
   const customPercent = String(draft.customPercent || '');
   const customBelowLimitMessage = `Custom pricing is available for sellers who want to price more than 20% below VaultKey's estimated market value. Choose the 10%, 15%, or 20% option above, or enter a price below ${money(tier20Cents / 100)}.`;
+  const tierPriceLookup: Record<string, number> = { '10': tier10Cents, '15': tier15Cents, '20': tier20Cents };
 
   const selectTier = (tier: '10' | '15' | '20') => {
     const cents = { '10': tier10Cents, '15': tier15Cents, '20': tier20Cents }[tier];
@@ -313,10 +321,29 @@ export default function ListOpportunityScreen() {
 
         {marketValue > 0 ? <View style={styles.stack}>
           <Text style={styles.section}>How aggressively would you like to price your property?</Text>
-          <Choice label="10% Below" note={money(tier10Cents / 100)} selected={pricingTier === '10'} onPress={() => selectTier('10')} />
-          <Choice label="15% Below" note={money(tier15Cents / 100)} selected={pricingTier === '15'} onPress={() => selectTier('15')} />
-          <Choice label="20% Below" note={money(tier20Cents / 100)} selected={pricingTier === '20'} onPress={() => selectTier('20')} />
-          <Choice label="Custom — 20%+ Below" note="Choose a larger discount" selected={pricingTier === 'custom'} onPress={selectCustomTier} />
+
+          <Pressable style={styles.dropdownField} onPress={() => setTierMenuOpen(true)}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dropdownValue}>{tierOptionLabel(pricingTier)}</Text>
+              {pricingTier && pricingTier !== 'custom' ? (
+                <Text style={styles.hint}>{money(tierPriceLookup[pricingTier] / 100)}</Text>
+              ) : null}
+            </View>
+            <Text style={styles.dropdownArrow}>▾</Text>
+          </Pressable>
+
+          <Modal visible={tierMenuOpen} transparent animationType="fade" onRequestClose={() => setTierMenuOpen(false)}>
+            <Pressable style={styles.modalOverlay} onPress={() => setTierMenuOpen(false)}>
+              <Pressable style={styles.modalSheet} onPress={() => {}}>
+                <Text style={styles.modalTitle}>How much below value?</Text>
+                <TierOption label="10% Below" note={money(tier10Cents / 100)} selected={pricingTier === '10'} onPress={() => { selectTier('10'); setTierMenuOpen(false); }} />
+                <TierOption label="15% Below" note={money(tier15Cents / 100)} selected={pricingTier === '15'} onPress={() => { selectTier('15'); setTierMenuOpen(false); }} />
+                <TierOption label="20% Below" note={money(tier20Cents / 100)} selected={pricingTier === '20'} onPress={() => { selectTier('20'); setTierMenuOpen(false); }} />
+                <TierOption label="Custom — 20%+ Below" note="Enter your own discount" selected={pricingTier === 'custom'} onPress={() => { selectCustomTier(); setTierMenuOpen(false); }} />
+                <Pressable style={styles.modalCancel} onPress={() => setTierMenuOpen(false)}><Text style={styles.modalCancelText}>Cancel</Text></Pressable>
+              </Pressable>
+            </Pressable>
+          </Modal>
 
           {pricingTier === 'custom' && <View style={styles.stack}>
             <View style={styles.row}>
@@ -361,6 +388,7 @@ export default function ListOpportunityScreen() {
 
 function Choice({label,note,selected,onPress}:{label:string;note:string;selected:boolean;onPress:()=>void}) { return <Pressable onPress={onPress} style={[styles.choice, selected && styles.selected]}><View><Text style={styles.choiceTitle}>{label}</Text><Text style={styles.hint}>{note}</Text></View><Text style={styles.radio}>{selected ? '●' : '○'}</Text></Pressable>; }
 function Field({label,value,placeholder,onChange,half,multiline}:{label:string;value:unknown;placeholder:string;onChange:(v:string)=>void;half?:boolean;multiline?:boolean}) { return <View style={half ? styles.half : undefined}><Text style={styles.label}>{label}</Text><TextInput style={[styles.input,multiline && styles.multiline]} value={typeof value === 'string' ? value : ''} placeholder={placeholder} placeholderTextColor={colors.muted} onChangeText={onChange} multiline={multiline} /></View>; }
+function TierOption({label,note,selected,onPress}:{label:string;note:string;selected:boolean;onPress:()=>void}) { return <Pressable onPress={onPress} style={[styles.modalOption, selected && styles.modalOptionSelected]}><View><Text style={styles.modalOptionText}>{label}</Text><Text style={styles.modalOptionNote}>{note}</Text></View><Text style={styles.radio}>{selected ? '●' : '○'}</Text></Pressable>; }
 
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:colors.ivory}, header:{height:58,paddingHorizontal:18,flexDirection:'row',alignItems:'center'},backButton:{width:44,height:44,alignItems:'center',justifyContent:'center',borderRadius:22,backgroundColor:colors.white,borderWidth:1,borderColor:colors.border},back:{fontSize:34,lineHeight:38,color:colors.ink},progress:{marginLeft:14,color:colors.emerald,fontWeight:'800'},saved:{marginLeft:'auto',color:colors.emerald,fontSize:11,fontWeight:'700'},
@@ -373,5 +401,9 @@ const styles = StyleSheet.create({
   document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
   preview:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white},previewImage:{height:130,borderRadius:radius.sm,backgroundColor:colors.emeraldDark,alignItems:'center',justifyContent:'center',marginBottom:12},previewImageText:{color:colors.gold,fontWeight:'800'},price:{fontSize:22,fontWeight:'900',color:colors.ink,marginVertical:4},good:{color:colors.emerald,fontWeight:'800'},reviewRow:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',justifyContent:'space-between',gap:15},reviewValue:{flex:1,textAlign:'right',fontSize:11,color:colors.muted},notice:{fontSize:11,lineHeight:16,color:colors.muted,padding:12,backgroundColor:'#EAF4F0',borderRadius:radius.sm},
   footer:{position:'absolute',left:0,right:0,bottom:0,paddingHorizontal:22,paddingTop:12,backgroundColor:colors.ivory,borderTopWidth:1,borderTopColor:colors.border,elevation:14,shadowColor:'#000',shadowOpacity:.14,shadowRadius:10,shadowOffset:{width:0,height:-4}},primary:{minHeight:58,borderRadius:radius.sm,backgroundColor:colors.emerald,alignItems:'center',justifyContent:'center'},primaryText:{color:colors.white,fontWeight:'800'},secondary:{minHeight:46,borderRadius:radius.sm,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center',marginTop:8},secondaryText:{color:colors.emerald,fontWeight:'800'},
-  success:{flex:1,padding:28,justifyContent:'center'},check:{width:82,height:82,borderRadius:41,backgroundColor:colors.emerald,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:24},checkText:{fontSize:42,color:colors.white,fontWeight:'800'},timeline:{gap:18,padding:18,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white,marginVertical:26},timelineText:{color:colors.muted,fontSize:13}
+  success:{flex:1,padding:28,justifyContent:'center'},check:{width:82,height:82,borderRadius:41,backgroundColor:colors.emerald,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:24},checkText:{fontSize:42,color:colors.white,fontWeight:'800'},timeline:{gap:18,padding:18,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white,marginVertical:26},timelineText:{color:colors.muted,fontSize:13},
+  dropdownField:{minHeight:58,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},dropdownValue:{fontSize:16,fontWeight:'800',color:colors.ink},dropdownArrow:{fontSize:18,color:colors.emerald,marginLeft:10},
+  modalOverlay:{flex:1,backgroundColor:'rgba(20,24,22,0.45)',justifyContent:'flex-end'},modalSheet:{backgroundColor:colors.ivory,borderTopLeftRadius:radius.lg ?? 20,borderTopRightRadius:radius.lg ?? 20,padding:20,gap:10},modalTitle:{fontSize:16,fontWeight:'800',color:colors.ink,marginBottom:4},
+  modalOption:{minHeight:66,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},modalOptionSelected:{borderColor:colors.emerald,backgroundColor:'#EAF4F0'},modalOptionText:{fontSize:15,fontWeight:'800',color:colors.ink},modalOptionNote:{fontSize:11,color:colors.muted,marginTop:2},
+  modalCancel:{minHeight:48,alignItems:'center',justifyContent:'center',marginTop:4},modalCancelText:{color:colors.emerald,fontWeight:'800'}
 });
