@@ -33,7 +33,7 @@ const money = (value: number) =>
 // Display label for the pricing-tier dropdown field and its modal header.
 // Purely presentational -- has no bearing on which tiers are allowed.
 const tierOptionLabel = (tier: string) =>
-  ({ '10': '10% Below', '15': '15% Below', '20': '20% Below', custom: 'Custom — 20%+ Below' } as Record<string, string>)[tier] ??
+  ({ '5': '5% Below', '10': '10% Below', '15': '15% Below', '20': '20% Below', custom: 'Custom — 20%+ Below' } as Record<string, string>)[tier] ??
   'Select a discount';
 
 const fields: Record<Asset, { key: string; label: string; placeholder: string }[]> = {
@@ -224,24 +224,26 @@ export default function ListOpportunityScreen() {
   const attomUnavailableMessage = 'ATTOM AVM unavailable — manual valuation required';
 
   // VaultKey is a below-market marketplace: a listing may only be priced at
-  // 10%, 15%, or 20% below VaultKey's estimated market value, or a custom
-  // discount strictly greater than 20%. This is only the client-side copy
-  // of that rule, for immediate feedback -- the property-data edge function
-  // independently re-fetches ATTOM's value and enforces the same rule
-  // server-side before a listing is ever written, so this can't be bypassed
-  // by editing these fields directly.
+  // 5%, 10%, 15%, or 20% below VaultKey's estimated market value, or a
+  // custom discount strictly greater than 20%. This is only the
+  // client-side copy of that rule, for immediate feedback -- the
+  // property-data edge function independently re-fetches ATTOM's value
+  // and enforces the same rule server-side before a listing is ever
+  // written, so this can't be bypassed by editing these fields directly.
   const marketValueCents = Math.round(marketValue * 100);
   const askingPriceCents = Math.round(askingPrice * 100);
+  const tier5Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 5) : 0;
   const tier10Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 10) : 0;
   const tier15Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 15) : 0;
   const tier20Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 20) : 0;
   const pricingTier = String(draft.pricingTier || '');
   const customPercent = String(draft.customPercent || '');
-  const customBelowLimitMessage = `Custom pricing is available for sellers who want to price more than 20% below VaultKey's estimated market value. Choose the 10%, 15%, or 20% option above, or enter a price below ${money(tier20Cents / 100)}.`;
-  const tierPriceLookup: Record<string, number> = { '10': tier10Cents, '15': tier15Cents, '20': tier20Cents };
+  const customBelowLimitMessage = `Custom pricing is available for sellers who want to price more than 20% below VaultKey's estimated market value. Choose the 5%, 10%, 15%, or 20% option above, or enter a price below ${money(tier20Cents / 100)}.`;
+  const tierPriceLookup: Record<string, number> = { '5': tier5Cents, '10': tier10Cents, '15': tier15Cents, '20': tier20Cents };
+  const tierLabelKeyLookup: Record<string, string> = { '5': '5_percent', '10': '10_percent', '15': '15_percent', '20': '20_percent' };
 
-  const selectTier = (tier: '10' | '15' | '20') => {
-    const cents = { '10': tier10Cents, '15': tier15Cents, '20': tier20Cents }[tier];
+  const selectTier = (tier: '5' | '10' | '15' | '20') => {
+    const cents = { '5': tier5Cents, '10': tier10Cents, '15': tier15Cents, '20': tier20Cents }[tier];
     setDraft((d) => ({ ...d, pricingTier: tier, askingPrice: centsToDollarString(cents), customPercent: '' }));
   };
   const selectCustomTier = () => setDraft((d) => ({ ...d, pricingTier: 'custom' }));
@@ -274,8 +276,8 @@ export default function ListOpportunityScreen() {
       if (askingPriceCents >= tier20Cents) return customBelowLimitMessage;
       return null;
     }
-    // '10' / '15' / '20': the price was set programmatically by selectTier
-    // and is always valid by construction.
+    // '5' / '10' / '15' / '20': the price was set programmatically by
+    // selectTier and is always valid by construction.
     return null;
   };
 
@@ -336,6 +338,7 @@ export default function ListOpportunityScreen() {
             <Pressable style={styles.modalOverlay} onPress={() => setTierMenuOpen(false)}>
               <Pressable style={styles.modalSheet} onPress={() => {}}>
                 <Text style={styles.modalTitle}>How much below value?</Text>
+                <TierOption label="5% Below" note={money(tier5Cents / 100)} selected={pricingTier === '5'} onPress={() => { selectTier('5'); setTierMenuOpen(false); }} />
                 <TierOption label="10% Below" note={money(tier10Cents / 100)} selected={pricingTier === '10'} onPress={() => { selectTier('10'); setTierMenuOpen(false); }} />
                 <TierOption label="15% Below" note={money(tier15Cents / 100)} selected={pricingTier === '15'} onPress={() => { selectTier('15'); setTierMenuOpen(false); }} />
                 <TierOption label="20% Below" note={money(tier20Cents / 100)} selected={pricingTier === '20'} onPress={() => { selectTier('20'); setTierMenuOpen(false); }} />
@@ -355,7 +358,7 @@ export default function ListOpportunityScreen() {
 
           {pricingTier && askingPrice > 0 ? <View style={styles.valuation}>
             <Text style={styles.valueBig}>{money(askingPrice)} · {discountPercent.toFixed(1)}% below value</Text>
-            <Text style={styles.hint}>{TIER_LABELS[{ '10': '10_percent', '15': '15_percent', '20': '20_percent', custom: 'custom' }[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The ATTOM estimate is locked and cannot be edited by the seller.</Text>
+            <Text style={styles.hint}>{TIER_LABELS[tierLabelKeyLookup[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The ATTOM estimate is locked and cannot be edited by the seller.</Text>
           </View> : null}
         </View> : <View style={styles.stack}>
           <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
