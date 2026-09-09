@@ -5,9 +5,10 @@
 // anything computed here.
 
 export const TIER_LABELS: Record<string, string> = {
-  '10_percent': '10% Below — VaultKey Deal',
-  '15_percent': '15% Below — Strong Deal',
-  '20_percent': '20% Below — Hot Deal',
+  '5_percent': '5% Below — VaultKey Deal',
+  '10_percent': '10% Below — Strong Deal',
+  '15_percent': '15% Below — Hot Deal',
+  '20_percent': '20% Below — Exceptional Deal',
   custom: 'More than 20% Below — Exceptional Deal',
   pending_valuation: 'Pending independent valuation',
 };
