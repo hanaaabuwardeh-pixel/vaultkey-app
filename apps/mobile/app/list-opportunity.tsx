@@ -6,6 +6,8 @@ import { colors, radius } from '@/lib/theme';
 import { getPropertyData, searchAddresses, type AddressSuggestion } from '@/lib/propertyData';
 import { saveListingDraft, submitListing } from '@/lib/listings';
 import { TIER_LABELS, centsToDollarString, discountPercentOf, dollarsToCents, tierPriceCents } from '@/lib/pricing';
+import { uploadProofDocument, type ProofDocument } from '@/lib/proofs';
+import { PROOF_REQUIREMENTS } from '@/lib/valuation';
 
 type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
 type Draft = Record<string, string | boolean>;
@@ -53,11 +55,11 @@ const fields: Record<Asset, { key: string; label: string; placeholder: string }[
     { key: 'tenancy', label: 'Tenancy', placeholder: 'Single or multi-tenant' },
   ],
   Land: [
-    { key: 'acres', label: 'Size (acres)', placeholder: '15.2' }, { key: 'zoning', label: 'Zoning / entitlements', placeholder: 'PD – approved' },
+    { key: 'acres', label: 'Size (acres)', placeholder: '15.2' }, { key: 'pricePerAcre', label: 'Supported price per acre', placeholder: '$85,000' }, { key: 'zoning', label: 'Zoning / entitlements', placeholder: 'PD – approved' },
     { key: 'utilities', label: 'Utilities / road access', placeholder: 'All utilities · paved' }, { key: 'developmentStatus', label: 'Development status', placeholder: 'Shovel ready' },
   ],
   Business: [
-    { key: 'revenue', label: 'Annual revenue', placeholder: '$1,250,000' }, { key: 'cashFlow', label: 'Cash flow', placeholder: '$225,000' },
+    { key: 'revenue', label: 'Annual revenue', placeholder: '$1,250,000' }, { key: 'valuationMultiple', label: 'Requested SDE multiple', placeholder: '3.0' }, { key: 'cashFlow', label: 'Cash flow', placeholder: '$225,000' },
     { key: 'sde', label: 'Seller discretionary earnings', placeholder: '$310,000' }, { key: 'yearsOperating', label: 'Years operating', placeholder: '11' },
     { key: 'included', label: 'Included in sale', placeholder: 'Inventory, equipment, real estate' },
   ],
@@ -77,8 +79,37 @@ export default function ListOpportunityScreen() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [tierMenuOpen, setTierMenuOpen] = useState(false);
+  const [proofUploading, setProofUploading] = useState('');
   const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
   const adaptiveFields = useMemo(() => fields[asset], [asset]);
+  const proofRequirements = PROOF_REQUIREMENTS[asset];
+  const proofDocuments = useMemo<ProofDocument[]>(() => {
+    try {
+      return draft.proofDocuments ? JSON.parse(String(draft.proofDocuments)) : [];
+    } catch {
+      return [];
+    }
+  }, [draft.proofDocuments]);
+
+  const addProof = async (category: string) => {
+    setError('');
+    setProofUploading(category);
+    try {
+      let ref = draftId;
+      if (!ref) {
+        ref = await saveListingDraft(null, draft, step);
+        setDraftId(ref);
+      }
+      const uploaded = await uploadProofDocument(ref, category);
+      if (!uploaded) return;
+      const nextProofs = [...proofDocuments.filter((item) => item.category !== category), uploaded];
+      set('proofDocuments', JSON.stringify(nextProofs));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Proof upload failed.');
+    } finally {
+      setProofUploading('');
+    }
+  };
 
   useEffect(() => {
     const query = String(draft.address || '').trim();
@@ -132,7 +163,16 @@ export default function ListOpportunityScreen() {
       setError('Complete all required information before continuing.');
       return;
     }
-    if (step === 4) {
+    if (step === 6) {
+      const missingProof = proofRequirements.find(
+        (requirement) => !proofDocuments.some((document) => document.category === requirement.category),
+      );
+      if (missingProof) {
+        setError(`Upload ${missingProof.label} before continuing.`);
+        return;
+      }
+    }
+    if (step === 4 && asset === 'Residential') {
       const pricingError = pricingTierError();
       if (pricingError) {
         setError(pricingError);
@@ -371,7 +411,23 @@ export default function ListOpportunityScreen() {
       {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
       {step === 6 && <View style={styles.stack}>
         <View style={styles.upload}><Text style={styles.uploadTitle}>＋ Add photos or video</Text><Text style={styles.hint}>Add at least 5 clear photos. First photo becomes the cover.</Text></View>
-        {['Seller disclosure', 'Survey / site plan', asset === 'Business' ? 'Profit & loss statement' : 'Inspection report', 'Operating statement', 'Offering memorandum'].map((d) => <View key={d} style={styles.document}><Text style={styles.label}>{d}</Text><Text style={styles.private}>Private until approved</Text></View>)}
+        {proofRequirements.length > 0 ? <>
+          <Text style={styles.section}>Required financial proof</Text>
+          <Text style={styles.hint}>These files stay private. VaultKey reviewers use them to verify every seller-entered valuation number before publication.</Text>
+          {proofRequirements.map((requirement) => {
+            const uploaded = proofDocuments.find((document) => document.category === requirement.category);
+            return <View key={requirement.category} style={styles.proofCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>{requirement.label} *</Text>
+                <Text style={styles.hint}>{requirement.reason}</Text>
+                {uploaded ? <Text style={styles.proofUploaded}>✓ {uploaded.name}</Text> : <Text style={styles.private}>Required before submission</Text>}
+              </View>
+              <Pressable disabled={proofUploading === requirement.category} style={styles.proofButton} onPress={() => addProof(requirement.category)}>
+                <Text style={styles.proofButtonText}>{proofUploading === requirement.category ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}</Text>
+              </Pressable>
+            </View>;
+          })}
+        </> : <View style={styles.document}><Text style={styles.label}>Residential valuation</Text><Text style={styles.private}>Verified through ATTOM</Text></View>}
       </View>}
       {step === 7 && <View style={styles.stack}>
         <Field multiline label="Deal description" value={draft.description} placeholder="Describe the opportunity, condition, strengths, risks, and value-add potential." onChange={(v) => set('description', v)} />
@@ -401,7 +457,7 @@ const styles = StyleSheet.create({
   label:{fontSize:12,fontWeight:'700',color:colors.ink,marginBottom:6},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},addressStatus:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4},addressError:{fontSize:11,fontWeight:'700',color:'#B42318'},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
   switchRow:{flexDirection:'row',alignItems:'center',backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14},map:{height:170,borderRadius:radius.md,backgroundColor:'#DDE9DF',alignItems:'center',justifyContent:'center'},mapPin:{fontSize:30,color:colors.emerald},mapText:{fontWeight:'800',color:colors.ink},
   lockedField:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:'#F1EEE7'},lockedValue:{fontSize:14,fontWeight:'800',color:colors.emerald},valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
-  document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
+  document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},proofCard:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',gap:12},proofUploaded:{fontSize:11,color:colors.emerald,fontWeight:'800',marginTop:6},proofButton:{paddingHorizontal:14,paddingVertical:10,borderRadius:radius.sm,backgroundColor:colors.emerald},proofButtonText:{fontSize:11,color:colors.white,fontWeight:'800'},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
   preview:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white},previewImage:{height:130,borderRadius:radius.sm,backgroundColor:colors.emeraldDark,alignItems:'center',justifyContent:'center',marginBottom:12},previewImageText:{color:colors.gold,fontWeight:'800'},price:{fontSize:22,fontWeight:'900',color:colors.ink,marginVertical:4},good:{color:colors.emerald,fontWeight:'800'},reviewRow:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',justifyContent:'space-between',gap:15},reviewValue:{flex:1,textAlign:'right',fontSize:11,color:colors.muted},notice:{fontSize:11,lineHeight:16,color:colors.muted,padding:12,backgroundColor:'#EAF4F0',borderRadius:radius.sm},
   footer:{position:'absolute',left:0,right:0,bottom:0,paddingHorizontal:22,paddingTop:12,backgroundColor:colors.ivory,borderTopWidth:1,borderTopColor:colors.border,elevation:14,shadowColor:'#000',shadowOpacity:.14,shadowRadius:10,shadowOffset:{width:0,height:-4}},primary:{minHeight:58,borderRadius:radius.sm,backgroundColor:colors.emerald,alignItems:'center',justifyContent:'center'},primaryText:{color:colors.white,fontWeight:'800'},secondary:{minHeight:46,borderRadius:radius.sm,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center',marginTop:8},secondaryText:{color:colors.emerald,fontWeight:'800'},
   success:{flex:1,padding:28,justifyContent:'center'},check:{width:82,height:82,borderRadius:41,backgroundColor:colors.emerald,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:24},checkText:{fontSize:42,color:colors.white,fontWeight:'800'},timeline:{gap:18,padding:18,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white,marginVertical:26},timelineText:{color:colors.muted,fontSize:13},
