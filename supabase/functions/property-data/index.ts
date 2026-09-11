@@ -448,14 +448,14 @@ Deno.serve(async (request) => {
             return json({ error: `Upload the required ${category.replaceAll('_', ' ')} document.` }, 400);
           }
 
-          const { data: storedFile } = await serviceClient
-            .schema('storage')
-            .from('objects')
-            .select('name')
-            .eq('bucket_id', 'listing-proofs')
-            .eq('name', String(document.path))
-            .maybeSingle();
-          if (!storedFile) {
+          const pathParts = String(document.path).split('/');
+          const fileName = pathParts.pop() ?? '';
+          const folder = pathParts.join('/');
+          const { data: storedFiles, error: storageError } = await serviceClient.storage
+            .from('listing-proofs')
+            .list(folder, { search: fileName, limit: 10 });
+          const storedFile = storedFiles?.some((file) => file.name === fileName);
+          if (storageError || !storedFile) {
             return json({ error: `The uploaded ${category.replaceAll('_', ' ')} file could not be verified.` }, 400);
           }
         }
