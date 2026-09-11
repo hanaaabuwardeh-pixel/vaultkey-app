@@ -17,12 +17,18 @@ type Listing = {
   discount_percent: number | null;
   pricing_tier: string | null;
   status: string;
+  valuation_method: string | null;
+  valuation_status: string;
+  proof_status: string;
+  proof_documents: Array<{ category: string; name: string; path: string }>;
+  asset_details: Record<string, unknown>;
   created_at: string;
 };
 
 // Server-computed only (see the property-data edge function's `submit`
 // action) -- kept in sync with apps/mobile/lib/pricing.ts's TIER_LABELS.
 const TIER_LABELS: Record<string, string> = {
+  '5_percent': '5% Below — Marketplace Entry',
   '10_percent': '10% Below — VaultKey Deal',
   '15_percent': '15% Below — Strong Deal',
   '20_percent': '20% Below — Hot Deal',
@@ -70,7 +76,7 @@ export default function AdminHome() {
     setRole(profile.role);
     const { data, error } = await client
       .from('listings')
-      .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_percent,pricing_tier,status,created_at')
+      .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_percent,pricing_tier,status,valuation_method,valuation_status,proof_status,proof_documents,asset_details,created_at')
       .in('status', ['submitted', 'under_review', 'changes_required', 'approved', 'rejected'])
       .order('created_at', { ascending: true });
 
@@ -134,6 +140,32 @@ export default function AdminHome() {
     setBusyId('');
   };
 
+  const openProof = async (path: string) => {
+    const client = supabase;
+    if (!client) return;
+    const { data, error } = await client.storage.from('listing-proofs').createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) {
+      setMessage(error?.message ?? 'Could not open this proof document.');
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const verifyDocumentsAndValuation = async (id: string) => {
+    const client = supabase;
+    if (!client) return;
+    setBusyId(id);
+    setMessage('');
+    const { error } = await client.from('listings').update({
+      proof_status: 'verified',
+      valuation_status: 'verified',
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) setMessage(error.message);
+    await loadQueue(session);
+    setBusyId('');
+  };
+
   if (!session) {
     return <main className="authPage">
       <section className="loginCard">
@@ -187,16 +219,25 @@ export default function AdminHome() {
             <h3>{item.title}</h3>
             <p>{item.city}, {item.state} · {money(item.asking_price_cents)} · <b>{item.status.replaceAll('_', ' ')}</b></p>
             <p className="pricing">
-              {item.pricing_tier === 'pending_valuation' || item.market_value_cents == null
-                ? 'ATTOM AVM unavailable — pending manual valuation'
-                : `${money(item.market_value_cents)} ATTOM value · ${Number(item.discount_percent).toFixed(1)}% below market · ${TIER_LABELS[item.pricing_tier ?? ''] ?? item.pricing_tier}`}
+              {item.asset_class === 'residential'
+                ? (item.pricing_tier === 'pending_valuation' || item.market_value_cents == null
+                    ? 'ATTOM AVM unavailable — pending manual valuation'
+                    : `${money(item.market_value_cents)} ATTOM value · ${Number(item.discount_percent).toFixed(1)}% below market · ${TIER_LABELS[item.pricing_tier ?? ''] ?? item.pricing_tier}`)
+                : `${item.market_value_cents == null ? 'No provisional value' : money(item.market_value_cents)} · ${String(item.valuation_method ?? 'manual').replaceAll('_', ' ')} · valuation ${item.valuation_status}`}
             </p>
+            <p className="pricing">Proof: <b>{item.proof_status}</b></p>
+            {item.proof_documents?.length ? <div className="actions">
+              {item.proof_documents.map((document) => <button className="outline" key={document.path} onClick={() => openProof(document.path)}>
+                Open {document.category.replaceAll('_', ' ')}
+              </button>)}
+            </div> : item.asset_class !== 'residential' ? <p className="error">Required proof documents are missing.</p> : null}
           </div>
           <div className="actions">
             {item.status === 'submitted' ? <button disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'under_review')}>Start review</button> : null}
             {item.status === 'under_review' ? <>
               <button className="outline" disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'changes_required')}>Request changes</button>
-              <button disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'approved')}>Approve</button>
+              {(item.valuation_status !== 'verified' || item.proof_status !== 'verified') ? <button className="outline" disabled={busyId === item.id || (item.asset_class !== 'residential' && !item.proof_documents?.length)} onClick={() => verifyDocumentsAndValuation(item.id)}>Verify documents & value</button> : null}
+              <button disabled={busyId === item.id || item.valuation_status !== 'verified' || item.proof_status !== 'verified'} onClick={() => updateStatus(item.id, 'approved')}>Approve</button>
             </> : null}
             {item.status === 'approved' ? <button disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'published')}>Publish</button> : null}
             {item.status === 'changes_required' ? <button disabled={busyId === item.id} onClick={() => updateStatus(item.id, 'under_review')}>Review again</button> : null}
