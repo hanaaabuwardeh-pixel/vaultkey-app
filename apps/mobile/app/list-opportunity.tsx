@@ -7,7 +7,7 @@ import { getPropertyData, searchAddresses, type AddressSuggestion } from '@/lib/
 import { saveListingDraft, submitListing } from '@/lib/listings';
 import { TIER_LABELS, centsToDollarString, discountPercentOf, dollarsToCents, tierPriceCents } from '@/lib/pricing';
 import { uploadProofDocument, type ProofDocument } from '@/lib/proofs';
-import { PROOF_REQUIREMENTS } from '@/lib/valuation';
+import { PROOF_REQUIREMENTS, sellerValuation } from '@/lib/valuation';
 
 type Asset = 'Residential' | 'Multifamily' | 'Commercial' | 'Land' | 'Business';
 type Draft = Record<string, string | boolean>;
@@ -230,11 +230,11 @@ export default function ListOpportunityScreen() {
         baths: String(baths),
         livingArea: String(livingArea),
         yearBuilt: String(yearBuilt),
-        marketValue: String(result.valuation?.value ?? ''),
-        avmLow: String(result.valuation?.low ?? ''),
-        avmHigh: String(result.valuation?.high ?? ''),
-        avmConfidence: String(result.valuation?.confidence ?? ''),
-        attomValuation: result.valuation ? JSON.stringify(result.valuation) : '',
+        marketValue: asset === 'Residential' ? String(result.valuation?.value ?? '') : '',
+        avmLow: asset === 'Residential' ? String(result.valuation?.low ?? '') : '',
+        avmHigh: asset === 'Residential' ? String(result.valuation?.high ?? '') : '',
+        avmConfidence: asset === 'Residential' ? String(result.valuation?.confidence ?? '') : '',
+        attomValuation: asset === 'Residential' && result.valuation ? JSON.stringify(result.valuation) : '',
         // A new address means a new market value baseline -- any
         // already-chosen pricing tier/price was computed against the old
         // one and is no longer valid.
@@ -252,7 +252,8 @@ export default function ListOpportunityScreen() {
     }
   };
   const askingPrice = Number(String(draft.askingPrice ?? '').replace(/[^0-9.]/g, '')) || 0;
-  const marketValue = Number(draft.marketValue) || 0;
+  const marketValue = asset === 'Residential' ? Number(draft.marketValue) || 0 : 0;
+  const provisionalValue = asset === 'Residential' ? 0 : sellerValuation(asset, draft);
   const avmLow = Number(draft.avmLow) || 0;
   const avmHigh = Number(draft.avmHigh) || 0;
   const upside = marketValue > 0 && askingPrice > 0 ? marketValue - askingPrice : 0;
@@ -341,7 +342,20 @@ export default function ListOpportunityScreen() {
       <Text style={styles.sub}>{step === 1 ? 'Questions adapt to the opportunity you select.' : step === 4 ? 'VaultKey calculates value independently. Sellers cannot enter or change it.' : 'Complete the information buyers need to evaluate this opportunity.'}</Text>
       {!!error && <Text style={styles.error}>{error}</Text>}
 
-      {step === 1 && <View style={styles.stack}>{assets.map((a) => <Choice key={a.name} label={a.name} note={a.note} selected={asset === a.name} onPress={() => { setAsset(a.name); set('type', types[a.name][0]); }} />)}</View>}
+      {step === 1 && <View style={styles.stack}>{assets.map((a) => <Choice key={a.name} label={a.name} note={a.note} selected={asset === a.name} onPress={() => {
+          setAsset(a.name);
+          setDraft((current) => ({
+            ...current,
+            type: types[a.name][0],
+            marketValue: '',
+            avmLow: '',
+            avmHigh: '',
+            attomValuation: '',
+            pricingTier: '',
+            askingPrice: '',
+            proofDocuments: '',
+          }));
+        }} />)}</View>}
       {step === 2 && <View style={styles.grid}>{types[asset].map((t) => <Pressable key={t} onPress={() => set('type', t)} style={[styles.tile, draft.type === t && styles.selected]}><Text style={styles.tileText}>{t}</Text></Pressable>)}</View>}
       {step === 3 && <View style={styles.stack}>
         <Field label="Street address *" value={draft.address} placeholder="Start typing an address" onChange={(v) => { setSelectedPlaceId(''); set('address', v); }} />
@@ -356,8 +370,8 @@ export default function ListOpportunityScreen() {
       {step === 4 && <View style={styles.stack}>
         <View style={styles.lockedField}>
           <Text style={styles.label}>VaultKey Estimated Market Value</Text>
-          <Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : attomUnavailableMessage}</Text>
-          {marketValue > 0 ? <Text style={styles.hint}>Based on ATTOM property valuation data.</Text> : null}
+          <Text style={styles.lockedValue}>{asset === 'Residential' ? (marketValue > 0 ? money(marketValue) : attomUnavailableMessage) : 'Calculated after financial details are entered'}</Text>
+          {marketValue > 0 ? <Text style={styles.hint}>Based on ATTOM property valuation data.</Text> : asset !== 'Residential' ? <Text style={styles.hint}>This provisional value must be supported by your uploaded documents and verified by VaultKey staff.</Text> : null}
           {avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}
         </View>
 
@@ -403,12 +417,14 @@ export default function ListOpportunityScreen() {
         </View> : <View style={styles.stack}>
           <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
           <View style={styles.valuation}>
-            <Text style={styles.valueBig}>{attomUnavailableMessage}</Text>
-            <Text style={styles.hint}>VaultKey could not retrieve an independent value for this property. Your listing will be submitted for manual review instead of an automatic pricing tier.</Text>
+            <Text style={styles.valueBig}>{asset === 'Residential' ? attomUnavailableMessage : 'Document-verified valuation'}</Text>
+            <Text style={styles.hint}>{asset === 'Residential'
+              ? 'VaultKey could not retrieve an independent value for this property. Your listing will be submitted for manual review instead of an automatic pricing tier.'
+              : 'Enter the financial details on the next page. VaultKey calculates a provisional value, then staff verifies the numbers against your required documents before publication.'}</Text>
           </View>
         </View>}
       </View>}
-      {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}</View>}
+      {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}{asset !== 'Residential' && provisionalValue > 0 ? <View style={styles.valuation}><Text style={styles.valueBig}>Provisional value: {money(provisionalValue)}</Text><Text style={styles.hint}>Pending staff verification against the required proof documents.</Text></View> : null}</View>}
       {step === 6 && <View style={styles.stack}>
         <View style={styles.upload}><Text style={styles.uploadTitle}>＋ Add photos or video</Text><Text style={styles.hint}>Add at least 5 clear photos. First photo becomes the cover.</Text></View>
         {proofRequirements.length > 0 ? <>
