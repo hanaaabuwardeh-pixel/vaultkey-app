@@ -103,7 +103,7 @@ async function fetchAvmValuation(
 // of the exact tier price (currency-safe rounding, not float equality);
 // custom must be strictly below the 20% price -- 20% itself is only
 // reachable through the "20" tier, never through "custom".
-const TIER_FRACTIONS = { '10': 10, '15': 15, '20': 20 } as const;
+const TIER_FRACTIONS = { '5': 5, '10': 10, '15': 15, '20': 20 } as const;
 const TOLERANCE_CENTS = 1;
 
 const tierPriceCents = (marketValueCents: number, percent: number) =>
@@ -146,7 +146,46 @@ function validatePricing(
     return { ok: true, tier: 'custom', discountCents, discountPercent };
   }
 
-  return { ok: false, error: 'Choose a pricing tier (10%, 15%, 20%, or Custom).' };
+  return { ok: false, error: 'Choose a pricing tier (5%, 10%, 15%, 20%, or Custom).' };
+}
+
+
+const REQUIRED_PROOFS: Record<string, string[]> = {
+  multifamily: ['rent_roll', 'operating_statement'],
+  commercial: ['lease_summary', 'operating_statement'],
+  land: ['survey', 'valuation_support', 'zoning'],
+  business: ['profit_loss', 'tax_return'],
+};
+
+const numeric = (value: unknown) =>
+  Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
+
+function provisionalValuation(assetClass: string, details: Record<string, unknown>) {
+  if (assetClass === 'multifamily' || assetClass === 'commercial') {
+    const noi = numeric(details.noi);
+    const capRate = numeric(details.capRate);
+    if (!(noi > 0) || !(capRate > 0)) {
+      return { error: 'Enter annual NOI and cap rate to calculate a provisional value.' };
+    }
+    return { value: noi / (capRate / 100), method: 'income_capitalization' };
+  }
+  if (assetClass === 'land') {
+    const acres = numeric(details.acres);
+    const pricePerAcre = numeric(details.pricePerAcre);
+    if (!(acres > 0) || !(pricePerAcre > 0)) {
+      return { error: 'Enter acreage and the supported price per acre.' };
+    }
+    return { value: acres * pricePerAcre, method: 'price_per_acre' };
+  }
+  if (assetClass === 'business') {
+    const sde = numeric(details.sde);
+    const multiple = numeric(details.valuationMultiple);
+    if (!(sde > 0) || !(multiple > 0)) {
+      return { error: 'Enter seller discretionary earnings and the requested valuation multiple.' };
+    }
+    return { value: sde * multiple, method: 'sde_multiple' };
+  }
+  return { error: 'This asset class does not have a supported valuation method.' };
 }
 
 Deno.serve(async (request) => {
@@ -330,53 +369,107 @@ Deno.serve(async (request) => {
       const askingPriceCents = Math.round(askingPriceDollars * 100);
       const requestedTier = String(body.pricingTier ?? '').trim();
 
-      // Independently re-fetch ATTOM's AVM for this property server-side.
-      // body.marketValue / body.attomValuation (whatever the client cached
-      // from its earlier address lookup) is never used for validation --
-      // only this fresh, server-fetched value is authoritative. The ATTOM
-      // ID (if any) is read from the raw property record the address-lookup
-      // step already returned to the client, not a separately-trusted field.
+      const rawAssetDetails =
+        body.assetDetails && typeof body.assetDetails === 'object' ? body.assetDetails : {};
+
+      const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false },
+      });
+
+      let marketValueCents: number | null = null;
+      let discountCents: number | null = null;
+      let discountPercent: number | null = null;
+      let pricingTier = 'pending_valuation';
+      let valuationMethod = '';
+      let valuationStatus = 'pending';
+      let proofStatus = assetClass === 'residential' ? 'verified' : 'pending';
+      let proofDocuments: Array<{ category: string; name: string; path: string }> = [];
+
       let attomProperty: any = null;
       try {
         attomProperty = body.attomProperty ? JSON.parse(String(body.attomProperty)) : null;
       } catch {
         attomProperty = null;
       }
-      const attomIdFromClient =
-        attomProperty?.identifier?.attomId ??
-        attomProperty?.identifier?.obPropId ??
-        attomProperty?.identifier?.Id ??
-        null;
 
-      let valuation: AvmValuation | null = null;
-      if (attomKey) {
-        const address2 = [city, state].filter(Boolean).join(', ') + (zip ? ` ${zip}` : '');
-        const params = new URLSearchParams({ address1: street, address2 });
-        valuation = await fetchAvmValuation(attomKey, params, attomIdFromClient ? String(attomIdFromClient) : null);
-      }
+      if (assetClass === 'residential') {
+        const attomIdFromClient =
+          attomProperty?.identifier?.attomId ??
+          attomProperty?.identifier?.obPropId ??
+          attomProperty?.identifier?.Id ??
+          null;
 
-      let marketValueCents: number | null = null;
-      let discountCents: number | null = null;
-      let discountPercent: number | null = null;
-      let pricingTier: string;
+        let valuation: AvmValuation | null = null;
+        if (attomKey) {
+          const address2 = [city, state].filter(Boolean).join(', ') + (zip ? ` ${zip}` : '');
+          const params = new URLSearchParams({ address1: street, address2 });
+          valuation = await fetchAvmValuation(
+            attomKey,
+            params,
+            attomIdFromClient ? String(attomIdFromClient) : null,
+          );
+        }
 
-      if (!valuation || !Number.isFinite(valuation.value) || valuation.value <= 0) {
-        // ATTOM genuinely has no AVM for this property. Accept the
-        // submission for manual admin review, exactly as before -- but
-        // never claim a pricing tier or discount that was never verified,
-        // and never let this become a silent "any price is fine" path.
-        pricingTier = 'pending_valuation';
+        valuationMethod = 'attom_avm';
+        if (valuation && Number.isFinite(valuation.value) && valuation.value > 0) {
+          marketValueCents = Math.round(valuation.value * 100);
+          const result = validatePricing(marketValueCents, askingPriceCents, requestedTier);
+          if (!result.ok) return json({ error: result.error }, 400);
+          pricingTier = result.tier;
+          discountCents = result.discountCents;
+          discountPercent = result.discountPercent;
+          valuationStatus = 'verified';
+        }
       } else {
-        marketValueCents = Math.round(valuation.value * 100);
-        const result = validatePricing(marketValueCents, askingPriceCents, requestedTier);
-        if (!result.ok) return json({ error: result.error }, 400);
-        pricingTier = result.tier;
-        discountCents = result.discountCents;
-        discountPercent = result.discountPercent;
+        const draftId = String(body.draftId ?? '').trim();
+        if (!draftId) return json({ error: 'Save the listing draft before uploading proof.' }, 400);
+
+        const { data: ownedDraft } = await serviceClient
+          .from('listing_drafts')
+          .select('id')
+          .eq('id', draftId)
+          .eq('owner_id', ownerId)
+          .maybeSingle();
+        if (!ownedDraft) return json({ error: 'The proof documents do not belong to this listing draft.' }, 403);
+
+        try {
+          proofDocuments = Array.isArray(body.proofDocuments)
+            ? body.proofDocuments
+            : JSON.parse(String(body.proofDocuments ?? '[]'));
+        } catch {
+          proofDocuments = [];
+        }
+
+        const required = REQUIRED_PROOFS[assetClass] ?? [];
+        for (const category of required) {
+          const document = proofDocuments.find((item) => item?.category === category);
+          const expectedPrefix = `${ownerId}/${draftId}/${category}/`;
+          if (!document?.path || !String(document.path).startsWith(expectedPrefix)) {
+            return json({ error: `Upload the required ${category.replaceAll('_', ' ')} document.` }, 400);
+          }
+
+          const pathParts = String(document.path).split('/');
+          const fileName = pathParts.pop() ?? '';
+          const folder = pathParts.join('/');
+          const { data: storedFiles, error: storageError } = await serviceClient.storage
+            .from('listing-proofs')
+            .list(folder, { search: fileName, limit: 10 });
+          const storedFile = storedFiles?.some((file) => file.name === fileName);
+          if (storageError || !storedFile) {
+            return json({ error: `The uploaded ${category.replaceAll('_', ' ')} file could not be verified.` }, 400);
+          }
+        }
+
+        const provisional = provisionalValuation(assetClass, rawAssetDetails);
+        if ('error' in provisional) return json({ error: provisional.error }, 400);
+        marketValueCents = Math.round(provisional.value * 100);
+        valuationMethod = provisional.method;
+        proofStatus = 'pending';
+        valuationStatus = 'pending';
       }
 
       const assetDetails = {
-        ...body.assetDetails,
+        ...rawAssetDetails,
         google: {
           latitude: body.latitude || null,
           longitude: body.longitude || null,
@@ -387,9 +480,6 @@ Deno.serve(async (request) => {
         },
       };
 
-      const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-        auth: { persistSession: false },
-      });
       const { data, error } = await serviceClient
         .from('listings')
         .insert({
@@ -408,6 +498,10 @@ Deno.serve(async (request) => {
           discount_cents: discountCents,
           discount_percent: discountPercent,
           pricing_tier: pricingTier,
+          valuation_method: valuationMethod,
+          valuation_status: valuationStatus,
+          proof_status: proofStatus,
+          proof_documents: proofDocuments,
           status: 'submitted',
           asset_details: assetDetails,
         })

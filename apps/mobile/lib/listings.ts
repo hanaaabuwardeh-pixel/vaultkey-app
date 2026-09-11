@@ -68,6 +68,10 @@ export const submitListing = async (
   const data = await invokePropertyData<{ id: string }>({
     action: 'submit',
     assetClass,
+    draftId,
+    proofDocuments: (() => {
+      try { return JSON.parse(String(payload.proofDocuments ?? '[]')); } catch { return []; }
+    })(),
     subtype: String(payload.type ?? ''),
     description: String(payload.description ?? ''),
     address: String(payload.address ?? ''),
