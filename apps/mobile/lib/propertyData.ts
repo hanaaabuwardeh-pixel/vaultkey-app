@@ -17,6 +17,19 @@ export type AttomValuation = {
   providerReference: string | number | null;
 };
 
+export type LightboxAssessment = {
+  provider: 'LightBox';
+  methodology: 'assessor_reported_market_value' | 'assessed_value';
+  value: number | null;
+  assessedValue: number | null;
+  taxableValue: number | null;
+  beds: number | null;
+  baths: number | null;
+  livingArea: number | null;
+  yearBuilt: number | null;
+  parcelId: string | null;
+};
+
 export type VerifiedAddress = {
   street: string;
   city: string;
@@ -56,14 +69,17 @@ export const searchAddresses = async (input: string) => {
   return data.suggestions;
 };
 
-export const getPropertyData = async (placeId: string, description: string) =>
+export const getPropertyData = async (placeId: string, description: string, assetClass: string) =>
   invokePropertyData<{
     address: VerifiedAddress;
     attomMatched: boolean;
     property: Record<string, unknown> | null;
     valuation: AttomValuation | null;
+    lightboxMatched: boolean;
+    lightbox: LightboxAssessment | null;
   }>({
     action: 'details',
     placeId,
     description,
+    assetClass: assetClass.toLowerCase(),
   });

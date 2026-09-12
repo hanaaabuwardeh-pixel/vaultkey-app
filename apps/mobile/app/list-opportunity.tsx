@@ -206,7 +206,7 @@ export default function ListOpportunityScreen() {
     setAddressLoading(true);
     setAddressError('');
     try {
-      const result = await getPropertyData(item.placeId, item.description);
+      const result = await getPropertyData(item.placeId, item.description, asset);
       const property = result.property as any;
       const rooms = property?.building?.rooms ?? {};
       const size = property?.building?.size ?? {};
@@ -216,6 +216,11 @@ export default function ListOpportunityScreen() {
       const baths = Number(rooms.bathstotal ?? rooms.bathscalc) || '';
       const livingArea = Number(size.livingsize ?? size.universalsize ?? size.bldgsize) || '';
       const yearBuilt = Number(summary.yearbuilt ?? buildingSummary.yearbuilteffective) || '';
+      const lightbox = result.lightbox;
+      const verifiedBeds = asset === 'Residential' ? beds : lightbox?.beds ?? '';
+      const verifiedBaths = asset === 'Residential' ? baths : lightbox?.baths ?? '';
+      const verifiedLivingArea = asset === 'Residential' ? livingArea : lightbox?.livingArea ?? '';
+      const verifiedYearBuilt = asset === 'Residential' ? yearBuilt : lightbox?.yearBuilt ?? '';
 
       setDraft((current) => ({
         ...current,
@@ -226,11 +231,11 @@ export default function ListOpportunityScreen() {
         latitude: String(result.address.latitude ?? ''),
         longitude: String(result.address.longitude ?? ''),
         formattedAddress: result.address.formattedAddress || item.description,
-        beds: String(beds),
-        baths: String(baths),
-        livingArea: String(livingArea),
-        yearBuilt: String(yearBuilt),
-        marketValue: asset === 'Residential' ? String(result.valuation?.value ?? '') : '',
+        beds: String(verifiedBeds),
+        baths: String(verifiedBaths),
+        livingArea: String(verifiedLivingArea),
+        yearBuilt: String(verifiedYearBuilt),
+        marketValue: asset === 'Residential' ? String(result.valuation?.value ?? '') : String(lightbox?.value ?? ''),
         avmLow: asset === 'Residential' ? String(result.valuation?.low ?? '') : '',
         avmHigh: asset === 'Residential' ? String(result.valuation?.high ?? '') : '',
         avmConfidence: asset === 'Residential' ? String(result.valuation?.confidence ?? '') : '',
@@ -243,6 +248,8 @@ export default function ListOpportunityScreen() {
         askingPrice: '',
         attomMatched: result.attomMatched,
         attomProperty: result.property ? JSON.stringify(result.property) : '',
+        lightboxMatched: result.lightboxMatched,
+        lightboxAssessment: lightbox ? JSON.stringify(lightbox) : '',
       }));
     } catch {
       setSelectedPlaceId('');
@@ -383,7 +390,7 @@ export default function ListOpportunityScreen() {
         <View style={styles.lockedField}>
           <Text style={styles.label}>VaultKey Estimated Market Value</Text>
           <Text style={styles.lockedValue}>{asset === 'Residential' ? (marketValue > 0 ? money(marketValue) : attomUnavailableMessage) : 'Calculated after financial details are entered'}</Text>
-          {marketValue > 0 ? <Text style={styles.hint}>Based on ATTOM property valuation data.</Text> : asset !== 'Residential' ? <Text style={styles.hint}>This provisional value must be supported by your uploaded documents and verified by VaultKey staff.</Text> : null}
+          {marketValue > 0 ? <Text style={styles.hint}>Based on independent property data from ATTOM or LightBox.</Text> : asset !== 'Residential' ? <Text style={styles.hint}>This provisional value must be supported by your uploaded documents and verified by VaultKey staff.</Text> : null}
           {avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}
         </View>
 

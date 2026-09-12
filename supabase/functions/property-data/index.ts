@@ -99,6 +99,67 @@ async function fetchAvmValuation(
   return null;
 }
 
+
+type LightboxAssessment = {
+  provider: 'LightBox';
+  methodology: 'assessor_reported_market_value' | 'assessed_value';
+  value: number | null;
+  assessedValue: number | null;
+  taxableValue: number | null;
+  beds: number | null;
+  baths: number | null;
+  livingArea: number | null;
+  yearBuilt: number | null;
+  parcelId: string | null;
+  raw: unknown;
+};
+
+const findByKeys = (value: unknown, keys: string[]): unknown => {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  for (const [key, child] of Object.entries(record)) {
+    if (keys.includes(key.toLowerCase()) && child !== null && child !== '') return child;
+  }
+  for (const child of Object.values(record)) {
+    const found = findByKeys(child, keys);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+const lightboxNumber = (record: unknown, keys: string[]) => {
+  const value = Number(String(findByKeys(record, keys.map((key) => key.toLowerCase())) ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+async function fetchLightboxAssessment(lightboxKey: string, latitude: number, longitude: number): Promise<LightboxAssessment | null> {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const params = new URLSearchParams({ wkt: `POINT(${longitude} ${latitude})`, bufferDistance: '100', bufferUnit: 'ft' });
+  const response = await fetch(`https://api.lightboxre.com/v1/assessments/us/geometry?${params}`, {
+    headers: { Accept: 'application/json', 'x-api-key': lightboxKey },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    console.warn('LightBox assessment unavailable', response.status, payload?.message ?? payload?.error ?? 'Unknown response');
+    return null;
+  }
+  const record = payload?.assessments?.[0] ?? payload?.data?.[0] ?? payload?.properties?.[0] ?? payload?.results?.[0] ?? payload?.items?.[0] ?? null;
+  if (!record) return null;
+  const marketValue = lightboxNumber(record, ['marketValue', 'totalMarketValue', 'marketValueTotal', 'assessorMarketValue']);
+  const assessedValue = lightboxNumber(record, ['assessedValue', 'totalAssessedValue', 'assessmentTotal']);
+  return {
+    provider: 'LightBox',
+    methodology: marketValue ? 'assessor_reported_market_value' : 'assessed_value',
+    value: marketValue,
+    assessedValue,
+    taxableValue: lightboxNumber(record, ['taxableValue', 'totalTaxableValue']),
+    beds: lightboxNumber(record, ['bedrooms', 'bedroomCount', 'beds']),
+    baths: lightboxNumber(record, ['bathrooms', 'bathroomCount', 'totalBathrooms', 'baths']),
+    livingArea: lightboxNumber(record, ['buildingSquareFeet', 'livingArea', 'grossBuildingArea', 'buildingArea']),
+    yearBuilt: lightboxNumber(record, ['yearBuilt', 'constructionYear']),
+    parcelId: String(findByKeys(record, ['lightboxparcelid', 'parcelid', 'apn']) ?? '') || null,
+    raw: record,
+  };
+}
+
 // The four allowed seller pricing tiers. 10/15/20 must land within a cent
 // of the exact tier price (currency-safe rounding, not float equality);
 // custom must be strictly below the 20% price -- 20% itself is only
@@ -194,6 +255,7 @@ Deno.serve(async (request) => {
 
   const googleKey = Deno.env.get('GOOGLE_PLACES_API_KEY');
   const attomKey = Deno.env.get('ATTOM_API_KEY');
+  const lightboxKey = Deno.env.get('LIGHTBOX_API_KEY');
   if (!googleKey) return json({ error: 'Property data services are not configured.' }, 500);
 
   try {
@@ -235,7 +297,11 @@ Deno.serve(async (request) => {
     }
 
     if (body.action === 'details') {
-      if (!attomKey) return json({ error: 'Property data services are not configured.' }, 500);
+      const assetClass = String(body.assetClass ?? 'residential').toLowerCase();
+      const usesAttom = assetClass === 'residential';
+      const usesLightbox = ['multifamily', 'commercial', 'land'].includes(assetClass);
+      if (usesAttom && !attomKey) return json({ error: 'ATTOM is not configured.' }, 500);
+      if (usesLightbox && !lightboxKey) return json({ error: 'LightBox is not configured.' }, 500);
 
       const placeId = String(body.placeId ?? '').trim();
       if (!placeId) return json({ error: 'A place ID is required.' }, 400);
@@ -285,7 +351,7 @@ Deno.serve(async (request) => {
       let property = null;
       let attomMatched = false;
       let valuation: AvmValuation | null = null;
-      if (address && address2) {
+      if (usesAttom && attomKey && address && address2) {
         const params = new URLSearchParams({ address1: address, address2 });
         const attomResponse = await fetch(
           `https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/detail?${params}`,
@@ -311,6 +377,12 @@ Deno.serve(async (request) => {
         valuation = await fetchAvmValuation(attomKey, params, attomId);
       }
 
+      const latitude = Number(place.location?.latitude);
+      const longitude = Number(place.location?.longitude);
+      const lightbox = usesLightbox && lightboxKey
+        ? await fetchLightboxAssessment(lightboxKey, latitude, longitude)
+        : null;
+
       return json({
         address: {
           street: address,
@@ -324,6 +396,8 @@ Deno.serve(async (request) => {
         attomMatched,
         property,
         valuation,
+        lightboxMatched: Boolean(lightbox),
+        lightbox,
       });
     }
 
@@ -460,10 +534,17 @@ Deno.serve(async (request) => {
           }
         }
 
+        const latitude = Number(body.latitude);
+        const longitude = Number(body.longitude);
+        const lightbox = ['multifamily', 'commercial', 'land'].includes(assetClass) && lightboxKey
+          ? await fetchLightboxAssessment(lightboxKey, latitude, longitude)
+          : null;
+
         const provisional = provisionalValuation(assetClass, rawAssetDetails);
         if ('error' in provisional) return json({ error: provisional.error }, 400);
-        marketValueCents = Math.round(provisional.value * 100);
-        valuationMethod = provisional.method;
+        marketValueCents = Math.round((lightbox?.value ?? provisional.value) * 100);
+        valuationMethod = lightbox?.value ? 'lightbox_assessor_market_value' : provisional.method;
+        (rawAssetDetails as Record<string, unknown>).lightbox = lightbox;
         proofStatus = 'pending';
         valuationStatus = 'pending';
       }
@@ -478,6 +559,7 @@ Deno.serve(async (request) => {
           matched: Boolean(body.attomMatched),
           property: attomProperty,
         },
+        lightbox: (rawAssetDetails as Record<string, unknown>).lightbox ?? null,
       };
 
       const { data, error } = await serviceClient
