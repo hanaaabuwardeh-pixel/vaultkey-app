@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { colors, radius } from '@/lib/theme';
@@ -46,12 +46,12 @@ const fields: Record<Asset, { key: string; label: string; placeholder: string }[
   ],
   Multifamily: [
     { key: 'units', label: 'Total units', placeholder: '24' }, { key: 'occupancy', label: 'Occupancy', placeholder: '92%' },
-    { key: 'noi', label: 'Annual NOI', placeholder: '$305,000' }, { key: 'capRate', label: 'Cap rate', placeholder: '7.6%' },
+    { key: 'noi', label: 'Net Operating Income (NOI)', placeholder: '$305,000' }, { key: 'capRate', label: 'Cap rate (automatically calculated)', placeholder: '7.6%' },
     { key: 'unitMix', label: 'Unit mix', placeholder: '12 × 1BR, 12 × 2BR' },
   ],
   Commercial: [
-    { key: 'buildingArea', label: 'Building area (sq ft)', placeholder: '18,500' }, { key: 'noi', label: 'Annual NOI', placeholder: '$520,000' },
-    { key: 'capRate', label: 'Cap rate', placeholder: '8.9%' }, { key: 'leaseStatus', label: 'Lease status', placeholder: '100% leased' },
+    { key: 'buildingArea', label: 'Building area (sq ft)', placeholder: '18,500' }, { key: 'noi', label: 'Net Operating Income (NOI)', placeholder: '$520,000' },
+    { key: 'capRate', label: 'Cap rate (automatically calculated)', placeholder: '8.9%' }, { key: 'leaseStatus', label: 'Lease status', placeholder: '100% leased' },
     { key: 'tenancy', label: 'Tenancy', placeholder: 'Single or multi-tenant' },
   ],
   Land: [
@@ -252,6 +252,18 @@ export default function ListOpportunityScreen() {
     }
   };
   const askingPrice = Number(String(draft.askingPrice ?? '').replace(/[^0-9.]/g, '')) || 0;
+  const annualNoi = Number(String(draft.noi ?? '').replace(/[^0-9.]/g, '')) || 0;
+  const calculatedCapRate =
+    (asset === 'Multifamily' || asset === 'Commercial') && annualNoi > 0 && askingPrice > 0
+      ? (annualNoi / askingPrice) * 100
+      : 0;
+
+  useEffect(() => {
+    if (asset !== 'Multifamily' && asset !== 'Commercial') return;
+    const nextCapRate = calculatedCapRate > 0 ? calculatedCapRate.toFixed(2) : '';
+    if (String(draft.capRate ?? '') === nextCapRate) return;
+    setDraft((current) => ({ ...current, capRate: nextCapRate }));
+  }, [asset, calculatedCapRate, draft.capRate]);
   const marketValue = asset === 'Residential' ? Number(draft.marketValue) || 0 : 0;
   const provisionalValue = asset === 'Residential' ? 0 : sellerValuation(asset, draft);
   const avmLow = Number(draft.avmLow) || 0;
@@ -424,7 +436,19 @@ export default function ListOpportunityScreen() {
           </View>
         </View>}
       </View>}
-      {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field key={f.key} label={f.label} value={draft[f.key]} placeholder={f.placeholder} onChange={(v) => set(f.key, v)} />)}{asset !== 'Residential' && provisionalValue > 0 ? <View style={styles.valuation}><Text style={styles.valueBig}>Provisional value: {money(provisionalValue)}</Text><Text style={styles.hint}>Pending staff verification against the required proof documents.</Text></View> : null}</View>}
+      {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field
+        key={f.key}
+        label={f.label}
+        value={draft[f.key]}
+        placeholder={f.placeholder}
+        onChange={(v) => set(f.key, v)}
+        readOnly={f.key === 'capRate'}
+        help={f.key === 'noi'
+          ? 'Net Operating Income (NOI) is the property’s annual income after normal operating expenses, but before mortgage payments, income taxes, depreciation, and amortization.'
+          : f.key === 'capRate'
+            ? 'Cap Rate = Net Operating Income (NOI) ÷ Asking Price × 100. VaultKey calculates this automatically.'
+            : undefined}
+      />)}{(asset === 'Multifamily' || asset === 'Commercial') && calculatedCapRate > 0 ? <View style={styles.valuation}><Text style={styles.valueBig}>Cap rate at asking price: {calculatedCapRate.toFixed(2)}%</Text><Text style={styles.hint}>Calculated automatically from annual NOI ÷ asking price. Market value is verified separately against the uploaded documents.</Text></View> : asset !== 'Residential' && provisionalValue > 0 ? <View style={styles.valuation}><Text style={styles.valueBig}>Provisional value: {money(provisionalValue)}</Text><Text style={styles.hint}>Pending staff verification against the required proof documents.</Text></View> : null}</View>}
       {step === 6 && <View style={styles.stack}>
         <View style={styles.upload}><Text style={styles.uploadTitle}>＋ Add photos or video</Text><Text style={styles.hint}>Add at least 5 clear photos. First photo becomes the cover.</Text></View>
         {proofRequirements.length > 0 ? <>
@@ -462,7 +486,7 @@ export default function ListOpportunityScreen() {
 }
 
 function Choice({label,note,selected,onPress}:{label:string;note:string;selected:boolean;onPress:()=>void}) { return <Pressable onPress={onPress} style={[styles.choice, selected && styles.selected]}><View><Text style={styles.choiceTitle}>{label}</Text><Text style={styles.hint}>{note}</Text></View><Text style={styles.radio}>{selected ? '●' : '○'}</Text></Pressable>; }
-function Field({label,value,placeholder,onChange,half,multiline}:{label:string;value:unknown;placeholder:string;onChange:(v:string)=>void;half?:boolean;multiline?:boolean}) { return <View style={half ? styles.half : undefined}><Text style={styles.label}>{label}</Text><TextInput style={[styles.input,multiline && styles.multiline]} value={typeof value === 'string' ? value : ''} placeholder={placeholder} placeholderTextColor={colors.muted} onChangeText={onChange} multiline={multiline} /></View>; }
+function Field({label,value,placeholder,onChange,half,multiline,help,readOnly}:{label:string;value:unknown;placeholder:string;onChange:(v:string)=>void;half?:boolean;multiline?:boolean;help?:string;readOnly?:boolean}) { return <View style={half ? styles.half : undefined}><View style={styles.labelRow}><Text style={styles.label}>{label}</Text>{help ? <Pressable accessibilityRole="button" accessibilityLabel={`Explain ${label}`} hitSlop={8} style={styles.helpButton} onPress={() => Alert.alert(label, help)}><Text style={styles.helpText}>?</Text></Pressable> : null}</View><TextInput style={[styles.input,multiline && styles.multiline,readOnly && styles.readOnlyInput]} value={typeof value === 'string' ? value : ''} placeholder={placeholder} placeholderTextColor={colors.muted} onChangeText={onChange} multiline={multiline} editable={!readOnly} /></View>; }
 function TierOption({label,note,selected,onPress}:{label:string;note:string;selected:boolean;onPress:()=>void}) { return <Pressable onPress={onPress} style={[styles.modalOption, selected && styles.modalOptionSelected]}><View><Text style={styles.modalOptionText}>{label}</Text><Text style={styles.modalOptionNote}>{note}</Text></View><Text style={styles.radio}>{selected ? '●' : '○'}</Text></Pressable>; }
 
 const styles = StyleSheet.create({
@@ -470,11 +494,12 @@ const styles = StyleSheet.create({
   content:{padding:22,paddingBottom:150},hero:{fontFamily:'serif',fontSize:29,color:colors.ink,marginBottom:5},sub:{fontSize:13,lineHeight:19,color:colors.muted,marginBottom:22},stack:{gap:13},grid:{flexDirection:'row',flexWrap:'wrap',gap:10},
   choice:{minHeight:76,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:16,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},selected:{borderColor:colors.emerald,backgroundColor:'#EAF4F0'},choiceTitle:{fontSize:16,fontWeight:'800',color:colors.ink},radio:{fontSize:22,color:colors.emerald},
   tile:{width:'48%',minHeight:70,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:12,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},tileText:{color:colors.ink,fontSize:12,fontWeight:'700',textAlign:'center'},
-  label:{fontSize:12,fontWeight:'700',color:colors.ink,marginBottom:6},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},addressStatus:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4},addressError:{fontSize:11,fontWeight:'700',color:'#B42318'},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
+  labelRow:{flexDirection:'row',alignItems:'center',gap:7,marginBottom:6},label:{fontSize:12,fontWeight:'700',color:colors.ink},helpButton:{width:20,height:20,borderRadius:10,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center'},helpText:{fontSize:12,fontWeight:'900',color:colors.emerald,lineHeight:16},readOnlyInput:{backgroundColor:'#F1EEE7',color:colors.emerald,fontWeight:'800'},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},addressStatus:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4},addressError:{fontSize:11,fontWeight:'700',color:'#B42318'},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
   switchRow:{flexDirection:'row',alignItems:'center',backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14},map:{height:170,borderRadius:radius.md,backgroundColor:'#DDE9DF',alignItems:'center',justifyContent:'center'},mapPin:{fontSize:30,color:colors.emerald},mapText:{fontWeight:'800',color:colors.ink},
   lockedField:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:'#F1EEE7'},lockedValue:{fontSize:14,fontWeight:'800',color:colors.emerald},valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
   document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},proofCard:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',gap:12},proofUploaded:{fontSize:11,color:colors.emerald,fontWeight:'800',marginTop:6},proofButton:{paddingHorizontal:14,paddingVertical:10,borderRadius:radius.sm,backgroundColor:colors.emerald},proofButtonText:{fontSize:11,color:colors.white,fontWeight:'800'},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
   preview:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white},previewImage:{height:130,borderRadius:radius.sm,backgroundColor:colors.emeraldDark,alignItems:'center',justifyContent:'center',marginBottom:12},previewImageText:{color:colors.gold,fontWeight:'800'},price:{fontSize:22,fontWeight:'900',color:colors.ink,marginVertical:4},good:{color:colors.emerald,fontWeight:'800'},reviewRow:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',justifyContent:'space-between',gap:15},reviewValue:{flex:1,textAlign:'right',fontSize:11,color:colors.muted},notice:{fontSize:11,lineHeight:16,color:colors.muted,padding:12,backgroundColor:'#EAF4F0',borderRadius:radius.sm},
+  disabled:{opacity:.6},
   footer:{position:'absolute',left:0,right:0,bottom:0,paddingHorizontal:22,paddingTop:12,backgroundColor:colors.ivory,borderTopWidth:1,borderTopColor:colors.border,elevation:14,shadowColor:'#000',shadowOpacity:.14,shadowRadius:10,shadowOffset:{width:0,height:-4}},primary:{minHeight:58,borderRadius:radius.sm,backgroundColor:colors.emerald,alignItems:'center',justifyContent:'center'},primaryText:{color:colors.white,fontWeight:'800'},secondary:{minHeight:46,borderRadius:radius.sm,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center',marginTop:8},secondaryText:{color:colors.emerald,fontWeight:'800'},
   success:{flex:1,padding:28,justifyContent:'center'},check:{width:82,height:82,borderRadius:41,backgroundColor:colors.emerald,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:24},checkText:{fontSize:42,color:colors.white,fontWeight:'800'},timeline:{gap:18,padding:18,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white,marginVertical:26},timelineText:{color:colors.muted,fontSize:13},
   dropdownField:{minHeight:58,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.white},dropdownValue:{fontSize:16,fontWeight:'800',color:colors.ink},dropdownArrow:{fontSize:18,color:colors.emerald,marginLeft:10},
