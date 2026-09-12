@@ -21,6 +21,10 @@ type Listing = {
   valuation_status: string;
   proof_status: string;
   proof_documents: Array<{ category: string; name: string; path: string }>;
+  valuation_disputed: boolean;
+  dispute_evidence_type: string | null;
+  dispute_documents: Array<{ category: string; name: string; path: string }>;
+  dispute_note: string | null;
   asset_details: Record<string, unknown>;
   created_at: string;
 };
@@ -34,6 +38,12 @@ const TIER_LABELS: Record<string, string> = {
   '20_percent': '20% Below — Hot Deal',
   custom: 'More than 20% Below — Exceptional Deal',
   pending_valuation: 'Pending independent valuation',
+  disputed_valuation: 'Value disputed by seller',
+};
+
+const DISPUTE_EVIDENCE_LABELS: Record<string, string> = {
+  three_comps: 'Three comparable sales',
+  certified_appraisal: 'Certified appraisal',
 };
 
 const money = (cents: number) =>
@@ -76,7 +86,7 @@ export default function AdminHome() {
     setRole(profile.role);
     const { data, error } = await client
       .from('listings')
-      .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_percent,pricing_tier,status,valuation_method,valuation_status,proof_status,proof_documents,asset_details,created_at')
+      .select('id,asset_class,subtype,title,city,state,asking_price_cents,market_value_cents,discount_percent,pricing_tier,status,valuation_method,valuation_status,proof_status,proof_documents,valuation_disputed,dispute_evidence_type,dispute_documents,dispute_note,asset_details,created_at')
       .in('status', ['submitted', 'under_review', 'changes_required', 'approved', 'rejected'])
       .order('created_at', { ascending: true });
 
@@ -111,6 +121,7 @@ export default function AdminHome() {
     ['Under review', listings.filter((item) => item.status === 'under_review').length],
     ['Changes required', listings.filter((item) => item.status === 'changes_required').length],
     ['Approved', listings.filter((item) => item.status === 'approved').length],
+    ['Disputed values', listings.filter((item) => item.valuation_disputed).length],
   ], [listings]);
 
   const signIn = async (event: FormEvent) => {
@@ -219,12 +230,23 @@ export default function AdminHome() {
             <h3>{item.title}</h3>
             <p>{item.city}, {item.state} · {money(item.asking_price_cents)} · <b>{item.status.replaceAll('_', ' ')}</b></p>
             <p className="pricing">
-              {item.asset_class === 'residential'
-                ? (item.pricing_tier === 'pending_valuation' || item.market_value_cents == null
-                    ? 'ATTOM AVM unavailable — pending manual valuation'
-                    : `${money(item.market_value_cents)} ATTOM value · ${Number(item.discount_percent).toFixed(1)}% below market · ${TIER_LABELS[item.pricing_tier ?? ''] ?? item.pricing_tier}`)
-                : `${item.market_value_cents == null ? 'No provisional value' : money(item.market_value_cents)} · ${String(item.valuation_method ?? 'manual').replaceAll('_', ' ')} · valuation ${item.valuation_status}`}
+              {item.pricing_tier === 'disputed_valuation'
+                ? `Seller disputes the ${item.market_value_cents == null ? 'automated' : money(item.market_value_cents)} independent value · asking ${money(item.asking_price_cents)}`
+                : item.asset_class === 'residential'
+                  ? (item.pricing_tier === 'pending_valuation' || item.market_value_cents == null
+                      ? 'ATTOM AVM unavailable — pending manual valuation'
+                      : `${money(item.market_value_cents)} ATTOM value · ${Number(item.discount_percent).toFixed(1)}% below market · ${TIER_LABELS[item.pricing_tier ?? ''] ?? item.pricing_tier}`)
+                  : `${item.market_value_cents == null ? 'No provisional value' : money(item.market_value_cents)} · ${String(item.valuation_method ?? 'manual').replaceAll('_', ' ')} · valuation ${item.valuation_status}`}
             </p>
+            {item.valuation_disputed ? <>
+              <p className="pricing"><b>Value disputed</b> · {DISPUTE_EVIDENCE_LABELS[item.dispute_evidence_type ?? ''] ?? item.dispute_evidence_type}</p>
+              {item.dispute_documents?.length ? <div className="actions">
+                {item.dispute_documents.map((document) => <button className="outline" key={document.path} onClick={() => openProof(document.path)}>
+                  Open {document.category.replaceAll('_', ' ')}
+                </button>)}
+              </div> : null}
+            </> : null}
+            {item.valuation_disputed && item.dispute_note ? <p className="pricing">Seller's note: "{item.dispute_note}"</p> : null}
             <p className="pricing">Proof: <b>{item.proof_status}</b></p>
             {item.proof_documents?.length ? <div className="actions">
               {item.proof_documents.map((document) => <button className="outline" key={document.path} onClick={() => openProof(document.path)}>
