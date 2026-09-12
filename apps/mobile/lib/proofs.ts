@@ -30,6 +30,7 @@ export const uploadProofDocument = async (listingRef: string, category: string):
 
   const path = `${userData.user.id}/${listingRef}/${category}/${Date.now()}-${cleanName(asset.name)}`;
   const body = asset.file ?? await fetch(asset.uri).then((response) => response.arrayBuffer());
+  if (!body) throw new Error('The selected proof document could not be read.');
   const { error } = await supabase.storage.from('listing-proofs').upload(path, body, {
     contentType: asset.mimeType ?? 'application/octet-stream',
     upsert: false,
