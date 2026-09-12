@@ -154,6 +154,7 @@ async function fetchLightboxAssessment(
   ];
 
   let record: any = null;
+  let matchedEndpoint = '';
   for (const url of requests) {
     const response = await fetch(url, { headers });
     const payload = await response.json().catch(() => null);
@@ -165,7 +166,19 @@ async function fetchLightboxAssessment(
         payload?.results?.[0] ??
         payload?.items?.[0] ??
         (payload?.id ? payload : null);
-      if (record) break;
+      if (record) {
+        matchedEndpoint = new URL(url).pathname;
+        break;
+      }
+      console.info(
+        'LightBox diagnostic',
+        JSON.stringify({
+          endpoint: new URL(url).pathname,
+          status: response.status,
+          recordFound: false,
+          responseKeys: Object.keys(payload ?? {}).slice(0, 30),
+        }),
+      );
     } else {
       console.warn(
         'LightBox assessment lookup unavailable',
@@ -188,13 +201,27 @@ async function fetchLightboxAssessment(
     'assessedValue', 'totalAssessedValue', 'assessmentTotal',
     'totalValue', 'assessedTotalValue',
   ]);
+  const taxableValue = lightboxNumber(record, ['taxableValue', 'totalTaxableValue']);
+
+  console.info(
+    'LightBox diagnostic',
+    JSON.stringify({
+      endpoint: matchedEndpoint,
+      recordFound: true,
+      recordKeys: Object.keys(record).slice(0, 40),
+      marketValue,
+      assessedValue,
+      taxableValue,
+      avm: lightboxNumber(record, ['avm']),
+    }),
+  );
 
   return {
     provider: 'LightBox',
     methodology: marketValue ? 'assessor_reported_market_value' : 'assessed_value',
     value: marketValue,
     assessedValue,
-    taxableValue: lightboxNumber(record, ['taxableValue', 'totalTaxableValue']),
+    taxableValue,
     beds: lightboxNumber(record, ['bedrooms', 'bedroomCount', 'beds']),
     baths: lightboxNumber(record, ['bathrooms', 'bathroomCount', 'totalBathrooms', 'baths']),
     livingArea: lightboxNumber(record, [
