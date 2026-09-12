@@ -388,8 +388,8 @@ export default function ListOpportunityScreen() {
       </View>}
       {step === 4 && <View style={styles.stack}>
         <View style={styles.lockedField}>
-          <Text style={styles.label}>VaultKey Estimated Market Value</Text>
-          <Text style={styles.lockedValue}>{asset === 'Residential' ? (marketValue > 0 ? money(marketValue) : attomUnavailableMessage) : 'Calculated after financial details are entered'}</Text>
+          <Text style={styles.label}>{asset === 'Residential' ? 'ATTOM estimated market value' : 'LightBox property value'}</Text>
+          <Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : (asset === 'Residential' ? attomUnavailableMessage : 'Not available for this property')}</Text>
           {marketValue > 0 ? <Text style={styles.hint}>Based on independent property data from ATTOM or LightBox.</Text> : asset !== 'Residential' ? <Text style={styles.hint}>This provisional value must be supported by your uploaded documents and verified by VaultKey staff.</Text> : null}
           {avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}
         </View>
@@ -431,12 +431,12 @@ export default function ListOpportunityScreen() {
 
           {pricingTier && askingPrice > 0 ? <View style={styles.valuation}>
             <Text style={styles.valueBig}>{money(askingPrice)} · {discountPercent.toFixed(1)}% below value</Text>
-            <Text style={styles.hint}>{TIER_LABELS[tierLabelKeyLookup[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The ATTOM estimate is locked and cannot be edited by the seller.</Text>
+            <Text style={styles.hint}>{TIER_LABELS[tierLabelKeyLookup[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The independent property-data estimate is locked and cannot be edited by the seller.</Text>
           </View> : null}
         </View> : <View style={styles.stack}>
           <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
           <View style={styles.valuation}>
-            <Text style={styles.valueBig}>{asset === 'Residential' ? attomUnavailableMessage : 'Document-verified valuation'}</Text>
+            <Text style={styles.valueBig}>{asset === 'Residential' ? attomUnavailableMessage : 'Seller-provided valuation — pending document review'}</Text>
             <Text style={styles.hint}>{asset === 'Residential'
               ? 'VaultKey could not retrieve an independent value for this property. Your listing will be submitted for manual review instead of an automatic pricing tier.'
               : 'Enter the financial details on the next page. VaultKey calculates a provisional value, then staff verifies the numbers against your required documents before publication.'}</Text>

@@ -130,21 +130,65 @@ const lightboxNumber = (record: unknown, keys: string[]) => {
   const value = Number(String(findByKeys(record, keys.map((key) => key.toLowerCase())) ?? '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(value) && value > 0 ? value : null;
 };
-async function fetchLightboxAssessment(lightboxKey: string, latitude: number, longitude: number): Promise<LightboxAssessment | null> {
+async function fetchLightboxAssessment(
+  lightboxKey: string,
+  latitude: number,
+  longitude: number,
+  formattedAddress = '',
+): Promise<LightboxAssessment | null> {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  const params = new URLSearchParams({ wkt: `POINT(${longitude} ${latitude})`, bufferDistance: '100', bufferUnit: 'ft' });
-  const response = await fetch(`https://api.lightboxre.com/v1/assessments/us/geometry?${params}`, {
-    headers: { Accept: 'application/json', 'x-api-key': lightboxKey },
+
+  const headers = { Accept: 'application/json', 'x-api-key': lightboxKey };
+  const geometryParams = new URLSearchParams({
+    wkt: `POINT(${longitude} ${latitude})`,
+    bufferDistance: '25',
+    bufferUnit: 'ft',
+    limit: '10',
   });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    console.warn('LightBox assessment unavailable', response.status, payload?.message ?? payload?.error ?? 'Unknown response');
+  const requests = [
+    ...(formattedAddress
+      ? [`https://api.lightboxre.com/v1/assessments/address?text=${encodeURIComponent(formattedAddress)}`]
+      : []),
+    `https://api.lightboxre.com/v1/assessments/_on/parcel/us/geometry?wkt=${encodeURIComponent(`POINT(${longitude} ${latitude})`)}`,
+    `https://api.lightboxre.com/v1/assessments/us/geometry?${geometryParams}`,
+  ];
+
+  let record: any = null;
+  for (const url of requests) {
+    const response = await fetch(url, { headers });
+    const payload = await response.json().catch(() => null);
+    if (response.ok) {
+      record =
+        payload?.assessments?.[0] ??
+        payload?.data?.[0] ??
+        payload?.properties?.[0] ??
+        payload?.results?.[0] ??
+        payload?.items?.[0] ??
+        (payload?.id ? payload : null);
+      if (record) break;
+    } else {
+      console.warn(
+        'LightBox assessment lookup unavailable',
+        new URL(url).pathname,
+        response.status,
+        payload?.message ?? payload?.error ?? 'Unknown response',
+      );
+    }
+  }
+  if (!record) {
+    console.warn('LightBox returned no assessment record', formattedAddress);
     return null;
   }
-  const record = payload?.assessments?.[0] ?? payload?.data?.[0] ?? payload?.properties?.[0] ?? payload?.results?.[0] ?? payload?.items?.[0] ?? null;
-  if (!record) return null;
-  const marketValue = lightboxNumber(record, ['marketValue', 'totalMarketValue', 'marketValueTotal', 'assessorMarketValue']);
-  const assessedValue = lightboxNumber(record, ['assessedValue', 'totalAssessedValue', 'assessmentTotal']);
+
+  const marketValue = lightboxNumber(record, [
+    'marketValue', 'totalMarketValue', 'marketValueTotal',
+    'assessorMarketValue', 'avm',
+  ]);
+  const assessedValue = lightboxNumber(record, [
+    'assessedValue', 'totalAssessedValue', 'assessmentTotal',
+    'totalValue', 'assessedTotalValue',
+  ]);
+
   return {
     provider: 'LightBox',
     methodology: marketValue ? 'assessor_reported_market_value' : 'assessed_value',
@@ -153,7 +197,10 @@ async function fetchLightboxAssessment(lightboxKey: string, latitude: number, lo
     taxableValue: lightboxNumber(record, ['taxableValue', 'totalTaxableValue']),
     beds: lightboxNumber(record, ['bedrooms', 'bedroomCount', 'beds']),
     baths: lightboxNumber(record, ['bathrooms', 'bathroomCount', 'totalBathrooms', 'baths']),
-    livingArea: lightboxNumber(record, ['buildingSquareFeet', 'livingArea', 'grossBuildingArea', 'buildingArea']),
+    livingArea: lightboxNumber(record, [
+      'buildingSquareFeet', 'livingArea', 'grossBuildingArea',
+      'buildingArea', 'buildingSize',
+    ]),
     yearBuilt: lightboxNumber(record, ['yearBuilt', 'constructionYear']),
     parcelId: String(findByKeys(record, ['lightboxparcelid', 'parcelid', 'apn']) ?? '') || null,
     raw: record,
@@ -380,7 +427,7 @@ Deno.serve(async (request) => {
       const latitude = Number(place.location?.latitude);
       const longitude = Number(place.location?.longitude);
       const lightbox = usesLightbox && lightboxKey
-        ? await fetchLightboxAssessment(lightboxKey, latitude, longitude)
+        ? await fetchLightboxAssessment(lightboxKey, latitude, longitude, place.formattedAddress ?? selectedDescription)
         : null;
 
       return json({
@@ -537,7 +584,7 @@ Deno.serve(async (request) => {
         const latitude = Number(body.latitude);
         const longitude = Number(body.longitude);
         const lightbox = ['multifamily', 'commercial', 'land'].includes(assetClass) && lightboxKey
-          ? await fetchLightboxAssessment(lightboxKey, latitude, longitude)
+          ? await fetchLightboxAssessment(lightboxKey, latitude, longitude, [street, city, state, zip].filter(Boolean).join(', '))
           : null;
 
         const provisional = provisionalValuation(assetClass, rawAssetDetails);
