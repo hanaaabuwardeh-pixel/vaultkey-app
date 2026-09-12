@@ -271,7 +271,7 @@ export default function ListOpportunityScreen() {
     if (String(draft.capRate ?? '') === nextCapRate) return;
     setDraft((current) => ({ ...current, capRate: nextCapRate }));
   }, [asset, calculatedCapRate, draft.capRate]);
-  const marketValue = asset === 'Residential' ? Number(draft.marketValue) || 0 : 0;
+     const marketValue = Number(draft.marketValue) || 0;
   const provisionalValue = asset === 'Residential' ? 0 : sellerValuation(asset, draft);
   const avmLow = Number(draft.avmLow) || 0;
   const avmHigh = Number(draft.avmHigh) || 0;
