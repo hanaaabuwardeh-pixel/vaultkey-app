@@ -65,6 +65,8 @@ const fields: Record<Asset, { key: string; label: string; placeholder: string }[
   ],
 };
 
+const DISPUTE_COMP_CATEGORIES = ['comp_1', 'comp_2', 'comp_3'];
+
 export default function ListOpportunityScreen() {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(1);
@@ -80,6 +82,7 @@ export default function ListOpportunityScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [tierMenuOpen, setTierMenuOpen] = useState(false);
   const [proofUploading, setProofUploading] = useState('');
+  const [disputeUploading, setDisputeUploading] = useState('');
   const set = (key: string, value: string | boolean) => setDraft((d) => ({ ...d, [key]: value }));
   const adaptiveFields = useMemo(() => fields[asset], [asset]);
   const proofRequirements = PROOF_REQUIREMENTS[asset];
@@ -90,6 +93,14 @@ export default function ListOpportunityScreen() {
       return [];
     }
   }, [draft.proofDocuments]);
+  const disputeDocuments = useMemo<ProofDocument[]>(() => {
+    try {
+      return draft.disputeDocuments ? JSON.parse(String(draft.disputeDocuments)) : [];
+    } catch {
+      return [];
+    }
+  }, [draft.disputeDocuments]);
+  const disputeEvidenceType = String(draft.disputeEvidenceType || '');
 
   const addProof = async (category: string) => {
     setError('');
@@ -108,6 +119,30 @@ export default function ListOpportunityScreen() {
       setError(uploadError instanceof Error ? uploadError.message : 'Proof upload failed.');
     } finally {
       setProofUploading('');
+    }
+  };
+
+  // Evidence a seller submits when they disagree with the automated
+  // ATTOM/LightBox value -- reuses the same upload/verification path as
+  // required proof documents (uploadProofDocument, then the edge function
+  // re-checks the file actually exists in storage before trusting it).
+  const addDisputeDocument = async (category: string) => {
+    setError('');
+    setDisputeUploading(category);
+    try {
+      let ref = draftId;
+      if (!ref) {
+        ref = await saveListingDraft(null, draft, step);
+        setDraftId(ref);
+      }
+      const uploaded = await uploadProofDocument(ref, category);
+      if (!uploaded) return;
+      const nextDocs = [...disputeDocuments.filter((item) => item.category !== category), uploaded];
+      set('disputeDocuments', JSON.stringify(nextDocs));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Upload failed.');
+    } finally {
+      setDisputeUploading('');
     }
   };
 
@@ -172,11 +207,19 @@ export default function ListOpportunityScreen() {
         return;
       }
     }
-    if (step === 4 && asset === 'Residential') {
-      const pricingError = pricingTierError();
-      if (pricingError) {
-        setError(pricingError);
-        return;
+    if (step === 4) {
+      if (draft.valuationDisputed) {
+        const disputeError = disputeEvidenceError();
+        if (disputeError) {
+          setError(disputeError);
+          return;
+        }
+      } else if (asset === 'Residential') {
+        const pricingError = pricingTierError();
+        if (pricingError) {
+          setError(pricingError);
+          return;
+        }
       }
     }
     setError('');
@@ -241,11 +284,15 @@ export default function ListOpportunityScreen() {
         avmConfidence: asset === 'Residential' ? String(result.valuation?.confidence ?? '') : '',
         attomValuation: asset === 'Residential' && result.valuation ? JSON.stringify(result.valuation) : '',
         // A new address means a new market value baseline -- any
-        // already-chosen pricing tier/price was computed against the old
-        // one and is no longer valid.
+        // already-chosen pricing tier/price, and any dispute in progress,
+        // was based on the old one and is no longer valid.
         pricingTier: '',
         customPercent: '',
         askingPrice: '',
+        valuationDisputed: false,
+        disputeEvidenceType: '',
+        disputeDocuments: '',
+        disputeNote: '',
         attomMatched: result.attomMatched,
         attomProperty: result.property ? JSON.stringify(result.property) : '',
         lightboxMatched: result.lightboxMatched,
@@ -271,7 +318,7 @@ export default function ListOpportunityScreen() {
     if (String(draft.capRate ?? '') === nextCapRate) return;
     setDraft((current) => ({ ...current, capRate: nextCapRate }));
   }, [asset, calculatedCapRate, draft.capRate]);
-     const marketValue = Number(draft.marketValue) || 0;
+  const marketValue = Number(draft.marketValue) || 0;
   const provisionalValue = asset === 'Residential' ? 0 : sellerValuation(asset, draft);
   const avmLow = Number(draft.avmLow) || 0;
   const avmHigh = Number(draft.avmHigh) || 0;
@@ -280,16 +327,17 @@ export default function ListOpportunityScreen() {
     marketValue > 0 && askingPrice > 0
       ? ((marketValue - askingPrice) / marketValue) * 100
       : 0;
-  const avmUnavailable = askingPrice > 0 && marketValue <= 0;
   const attomUnavailableMessage = 'ATTOM AVM unavailable — manual valuation required';
 
   // VaultKey is a below-market marketplace: a listing may only be priced at
   // 5%, 10%, 15%, or 20% below VaultKey's estimated market value, or a
-  // custom discount strictly greater than 20%. This is only the
-  // client-side copy of that rule, for immediate feedback -- the
-  // property-data edge function independently re-fetches ATTOM's value
-  // and enforces the same rule server-side before a listing is ever
-  // written, so this can't be bypassed by editing these fields directly.
+  // custom discount strictly greater than 20% -- unless the seller
+  // disputes the value itself (see disputeEvidenceError below), in which
+  // case no tier is required and the listing goes straight to manual
+  // review instead. This is only the client-side copy of that rule, for
+  // immediate feedback -- the property-data edge function independently
+  // re-fetches the value and enforces the same rule server-side, so this
+  // can't be bypassed by editing these fields directly.
   const marketValueCents = Math.round(marketValue * 100);
   const askingPriceCents = Math.round(askingPrice * 100);
   const tier5Cents = marketValueCents > 0 ? tierPriceCents(marketValueCents, 5) : 0;
@@ -327,6 +375,14 @@ export default function ListOpportunityScreen() {
     }));
   };
 
+  const toggleDispute = () => setDraft((d) => ({
+    ...d,
+    valuationDisputed: !d.valuationDisputed,
+    pricingTier: '',
+    askingPrice: '',
+    customPercent: '',
+  }));
+
   const pricingTierError = (): string | null => {
     if (marketValue <= 0) return askingPrice > 0 ? null : 'Enter an asking price.';
     if (!pricingTier) return 'Choose how you want to price this property.';
@@ -339,6 +395,25 @@ export default function ListOpportunityScreen() {
     // '5' / '10' / '15' / '20': the price was set programmatically by
     // selectTier and is always valid by construction.
     return null;
+  };
+
+  // A dispute needs either all three comparable sales, or one certified
+  // appraisal -- not a partial set of either. Matches the server's
+  // verifyDisputeEvidence exactly, so a seller never gets a false "looks
+  // complete" here that the server then rejects.
+  const disputeEvidenceError = (): string | null => {
+    if (!disputeEvidenceType) return 'Choose three comparable sales or a certified appraisal.';
+    if (disputeEvidenceType === 'certified_appraisal') {
+      return disputeDocuments.some((document) => document.category === 'certified_appraisal')
+        ? null
+        : 'Upload a certified appraisal.';
+    }
+    if (disputeEvidenceType === 'three_comps') {
+      return DISPUTE_COMP_CATEGORIES.every((category) => disputeDocuments.some((document) => document.category === category))
+        ? null
+        : 'Upload all three comparable sales.';
+    }
+    return 'Choose three comparable sales or a certified appraisal.';
   };
 
   const title = ['Choose the asset class', 'Choose the property / business type', 'Where is the opportunity?', 'Tell us the financials', 'Tell us about the asset', 'Add photos and documents', 'Describe the opportunity', 'Review your listing'][step - 1];
@@ -373,6 +448,10 @@ export default function ListOpportunityScreen() {
             pricingTier: '',
             askingPrice: '',
             proofDocuments: '',
+            valuationDisputed: false,
+            disputeEvidenceType: '',
+            disputeDocuments: '',
+            disputeNote: '',
           }));
         }} />)}</View>}
       {step === 2 && <View style={styles.grid}>{types[asset].map((t) => <Pressable key={t} onPress={() => set('type', t)} style={[styles.tile, draft.type === t && styles.selected]}><Text style={styles.tileText}>{t}</Text></Pressable>)}</View>}
@@ -392,9 +471,50 @@ export default function ListOpportunityScreen() {
           <Text style={styles.lockedValue}>{marketValue > 0 ? money(marketValue) : (asset === 'Residential' ? attomUnavailableMessage : 'Not available for this property')}</Text>
           {marketValue > 0 ? <Text style={styles.hint}>Based on independent property data from ATTOM or LightBox.</Text> : asset !== 'Residential' ? <Text style={styles.hint}>This provisional value must be supported by your uploaded documents and verified by VaultKey staff.</Text> : null}
           {avmLow > 0 && avmHigh > 0 ? <Text style={styles.hint}>Estimated range: {money(avmLow)}–{money(avmHigh)}</Text> : null}
+          {marketValue > 0 ? <Pressable onPress={toggleDispute} hitSlop={6} style={styles.disputeToggle}>
+            <Text style={styles.disputeToggleText}>{draft.valuationDisputed ? '‹ Back to pricing tiers' : "Don't agree with this value?"}</Text>
+          </Pressable> : null}
         </View>
 
-        {marketValue > 0 ? <View style={styles.stack}>
+        {marketValue > 0 && draft.valuationDisputed ? <View style={styles.stack}>
+          <Text style={styles.section}>Dispute this value</Text>
+          <Text style={styles.hint}>Submit either three independent comparable sales or one certified appraisal. VaultKey staff will review your evidence before this listing is priced or published — it will not use the automatic pricing tiers.</Text>
+
+          <Choice label="Three comparable sales" note="Upload three independent comps" selected={disputeEvidenceType === 'three_comps'} onPress={() => set('disputeEvidenceType', 'three_comps')} />
+          <Choice label="Certified appraisal" note="Upload one certified appraisal" selected={disputeEvidenceType === 'certified_appraisal'} onPress={() => set('disputeEvidenceType', 'certified_appraisal')} />
+
+          {disputeEvidenceType === 'three_comps' ? <View style={styles.stack}>
+            {DISPUTE_COMP_CATEGORIES.map((category, index) => {
+              const uploaded = disputeDocuments.find((document) => document.category === category);
+              return <View key={category} style={styles.proofCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Comparable sale {index + 1} *</Text>
+                  {uploaded ? <Text style={styles.proofUploaded}>✓ {uploaded.name}</Text> : <Text style={styles.private}>Required</Text>}
+                </View>
+                <Pressable disabled={disputeUploading === category} style={styles.proofButton} onPress={() => addDisputeDocument(category)}>
+                  <Text style={styles.proofButtonText}>{disputeUploading === category ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}</Text>
+                </Pressable>
+              </View>;
+            })}
+          </View> : null}
+
+          {disputeEvidenceType === 'certified_appraisal' ? <View style={styles.proofCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Certified appraisal *</Text>
+              {disputeDocuments.find((document) => document.category === 'certified_appraisal')
+                ? <Text style={styles.proofUploaded}>✓ {disputeDocuments.find((document) => document.category === 'certified_appraisal')!.name}</Text>
+                : <Text style={styles.private}>Required</Text>}
+            </View>
+            <Pressable disabled={disputeUploading === 'certified_appraisal'} style={styles.proofButton} onPress={() => addDisputeDocument('certified_appraisal')}>
+              <Text style={styles.proofButtonText}>{disputeUploading === 'certified_appraisal' ? 'Uploading…' : disputeDocuments.find((document) => document.category === 'certified_appraisal') ? 'Replace' : 'Upload'}</Text>
+            </Pressable>
+          </View> : null}
+
+          <Field multiline label="Note to reviewers (optional)" value={draft.disputeNote} placeholder="Explain why you believe the independent value is inaccurate." onChange={(v) => set('disputeNote', v)} />
+          <Field label="Your asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
+        </View> : null}
+
+        {marketValue > 0 && !draft.valuationDisputed ? <View style={styles.stack}>
           <Text style={styles.section}>How aggressively would you like to price your property?</Text>
 
           <Pressable style={styles.dropdownField} onPress={() => setTierMenuOpen(true)}>
@@ -433,7 +553,9 @@ export default function ListOpportunityScreen() {
             <Text style={styles.valueBig}>{money(askingPrice)} · {discountPercent.toFixed(1)}% below value</Text>
             <Text style={styles.hint}>{TIER_LABELS[tierLabelKeyLookup[pricingTier] ?? 'custom']} · {money(upside)} potential upside. The independent property-data estimate is locked and cannot be edited by the seller.</Text>
           </View> : null}
-        </View> : <View style={styles.stack}>
+        </View> : null}
+
+        {marketValue <= 0 ? <View style={styles.stack}>
           <Field label="Asking price" value={draft.askingPrice} placeholder="$625,000" onChange={(v) => set('askingPrice', v)} />
           <View style={styles.valuation}>
             <Text style={styles.valueBig}>{asset === 'Residential' ? attomUnavailableMessage : 'Seller-provided valuation — pending document review'}</Text>
@@ -441,7 +563,7 @@ export default function ListOpportunityScreen() {
               ? 'VaultKey could not retrieve an independent value for this property. Your listing will be submitted for manual review instead of an automatic pricing tier.'
               : 'Enter the financial details on the next page. VaultKey calculates a provisional value, then staff verifies the numbers against your required documents before publication.'}</Text>
           </View>
-        </View>}
+        </View> : null}
       </View>}
       {step === 5 && <View style={styles.stack}><View style={styles.assetBadge}><Text style={styles.assetTitle}>{asset} · {String(draft.type)}</Text></View>{adaptiveFields.map((f) => <Field
         key={f.key}
@@ -484,7 +606,7 @@ export default function ListOpportunityScreen() {
       </View>}
       {step === 8 && <View style={styles.stack}>
         <View style={styles.preview}><View style={styles.previewImage}><Text style={styles.previewImageText}>PHOTO</Text></View><Text style={styles.assetTitle}>{draft.city || 'Location'}, {draft.state || 'State'}</Text><Text style={styles.price}>{draft.askingPrice || 'Asking price'}</Text><Text style={styles.good}>{asset} · {String(draft.type)}</Text></View>
-        {[['Property', asset + ' · ' + draft.type], ['Location', draft.hideAddress ? 'City visible · address private' : draft.address], ['Financials', draft.askingPrice || 'Required'], ['Asset details', adaptiveFields.map(f => draft[f.key]).filter(Boolean).join(' · ') || 'Required'], ['Media', 'Photos and documents'], ['Access', 'Controlled approval']].map(([a,b]) => <View key={String(a)} style={styles.reviewRow}><Text style={styles.label}>{a}</Text><Text numberOfLines={2} style={styles.reviewValue}>{String(b)}</Text></View>)}
+        {[['Property', asset + ' · ' + draft.type], ['Location', draft.hideAddress ? 'City visible · address private' : draft.address], ['Financials', draft.valuationDisputed ? `${draft.askingPrice || 'Required'} · value disputed, pending review` : (draft.askingPrice || 'Required')], ['Asset details', adaptiveFields.map(f => draft[f.key]).filter(Boolean).join(' · ') || 'Required'], ['Media', 'Photos and documents'], ['Access', 'Controlled approval']].map(([a,b]) => <View key={String(a)} style={styles.reviewRow}><Text style={styles.label}>{a}</Text><Text numberOfLines={2} style={styles.reviewValue}>{String(b)}</Text></View>)}
         <Text style={styles.notice}>What you enter becomes what qualified buyers see in Discover. Independent value is published only after review.</Text>
       </View>}
     </ScrollView>
@@ -503,7 +625,7 @@ const styles = StyleSheet.create({
   tile:{width:'48%',minHeight:70,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:12,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},tileText:{color:colors.ink,fontSize:12,fontWeight:'700',textAlign:'center'},
   labelRow:{flexDirection:'row',alignItems:'center',gap:7,marginBottom:6},label:{fontSize:12,fontWeight:'700',color:colors.ink},helpButton:{width:20,height:20,borderRadius:10,borderWidth:1,borderColor:colors.emerald,alignItems:'center',justifyContent:'center'},helpText:{fontSize:12,fontWeight:'900',color:colors.emerald,lineHeight:16},readOnlyInput:{backgroundColor:'#F1EEE7',color:colors.emerald,fontWeight:'800'},error:{color:'#B42318',fontSize:12,fontWeight:'700',padding:12,marginBottom:14,borderRadius:radius.sm,backgroundColor:'#FEE4E2'},suggestions:{marginTop:-8,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,overflow:'hidden',backgroundColor:colors.white},suggestion:{padding:12,borderBottomWidth:1,borderBottomColor:colors.border},suggestionTitle:{fontSize:13,fontWeight:'800',color:colors.ink},addressStatus:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4},addressError:{fontSize:11,fontWeight:'700',color:'#B42318'},hint:{fontSize:11,color:colors.muted,lineHeight:16},input:{height:48,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,paddingHorizontal:13,color:colors.ink},multiline:{height:120,paddingTop:12,textAlignVertical:'top'},row:{flexDirection:'row',gap:10},half:{flex:1},
   switchRow:{flexDirection:'row',alignItems:'center',backgroundColor:colors.white,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,padding:14},map:{height:170,borderRadius:radius.md,backgroundColor:'#DDE9DF',alignItems:'center',justifyContent:'center'},mapPin:{fontSize:30,color:colors.emerald},mapText:{fontWeight:'800',color:colors.ink},
-  lockedField:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:'#F1EEE7'},lockedValue:{fontSize:14,fontWeight:'800',color:colors.emerald},valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
+  lockedField:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:'#F1EEE7'},lockedValue:{fontSize:14,fontWeight:'800',color:colors.emerald},disputeToggle:{marginTop:10},disputeToggleText:{fontSize:11,fontWeight:'800',color:colors.emerald,textDecorationLine:'underline'},valuation:{padding:16,borderRadius:radius.md,backgroundColor:'#EAF4F0',borderWidth:1,borderColor:colors.emerald},valueBig:{fontSize:17,fontWeight:'800',color:colors.emerald,marginBottom:5},assetBadge:{padding:14,borderRadius:radius.md,backgroundColor:colors.emerald},assetTitle:{fontSize:16,fontWeight:'800',color:colors.ink},upload:{height:150,borderWidth:1,borderStyle:'dashed',borderColor:colors.emerald,borderRadius:radius.md,alignItems:'center',justifyContent:'center',backgroundColor:colors.white},uploadTitle:{fontSize:16,fontWeight:'800',color:colors.emerald,marginBottom:7},
   document:{height:54,paddingHorizontal:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},private:{fontSize:10,color:colors.emerald},proofCard:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',alignItems:'center',gap:12},proofUploaded:{fontSize:11,color:colors.emerald,fontWeight:'800',marginTop:6},proofButton:{paddingHorizontal:14,paddingVertical:10,borderRadius:radius.sm,backgroundColor:colors.emerald},proofButtonText:{fontSize:11,color:colors.white,fontWeight:'800'},section:{fontSize:16,fontWeight:'800',color:colors.ink,marginTop:10},checkRow:{flexDirection:'row',alignItems:'center',gap:9},checkbox:{fontSize:20,color:colors.emerald},
   preview:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.white},previewImage:{height:130,borderRadius:radius.sm,backgroundColor:colors.emeraldDark,alignItems:'center',justifyContent:'center',marginBottom:12},previewImageText:{color:colors.gold,fontWeight:'800'},price:{fontSize:22,fontWeight:'900',color:colors.ink,marginVertical:4},good:{color:colors.emerald,fontWeight:'800'},reviewRow:{padding:14,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.white,flexDirection:'row',justifyContent:'space-between',gap:15},reviewValue:{flex:1,textAlign:'right',fontSize:11,color:colors.muted},notice:{fontSize:11,lineHeight:16,color:colors.muted,padding:12,backgroundColor:'#EAF4F0',borderRadius:radius.sm},
   disabled:{opacity:.6},
