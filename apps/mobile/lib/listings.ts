@@ -49,6 +49,15 @@ export const saveListingDraft = async (
   return data.id as string;
 };
 
+const parseJsonArray = (value: unknown): unknown[] => {
+  try {
+    const parsed = JSON.parse(String(value ?? '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 export const submitListing = async (
   asset: string,
   payload: ListingDraftPayload,
@@ -61,17 +70,16 @@ export const submitListing = async (
   const allowed = ['residential', 'multifamily', 'commercial', 'land', 'business'];
   if (!allowed.includes(assetClass)) throw new Error('Choose a valid asset class.');
 
-  // The seller's asking price and pricing tier are only a proposal here --
-  // the edge function independently re-fetches ATTOM's market value and
-  // validates the price against it before writing anything. Nothing this
-  // client sends for market value/discount/tier is trusted.
+  // The seller's asking price, pricing tier, and any dispute evidence are
+  // only a proposal here -- the edge function independently re-fetches
+  // the ATTOM/LightBox value, re-verifies every uploaded document against
+  // Supabase Storage, and validates the price before writing anything.
+  // Nothing this client sends is trusted on its own.
   const data = await invokePropertyData<{ id: string }>({
     action: 'submit',
     assetClass,
     draftId,
-    proofDocuments: (() => {
-      try { return JSON.parse(String(payload.proofDocuments ?? '[]')); } catch { return []; }
-    })(),
+    proofDocuments: parseJsonArray(payload.proofDocuments),
     subtype: String(payload.type ?? ''),
     description: String(payload.description ?? ''),
     address: String(payload.address ?? ''),
@@ -85,6 +93,10 @@ export const submitListing = async (
     longitude: payload.longitude,
     attomMatched: payload.attomMatched,
     attomProperty: payload.attomProperty,
+    valuationDisputed: Boolean(payload.valuationDisputed),
+    disputeEvidenceType: String(payload.disputeEvidenceType ?? ''),
+    disputeDocuments: parseJsonArray(payload.disputeDocuments),
+    disputeNote: String(payload.disputeNote ?? ''),
     assetDetails: payload,
   });
 
